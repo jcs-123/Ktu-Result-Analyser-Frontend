@@ -1,0 +1,91 @@
+/* Reset defaults */
+* {
+  padding: 0;
+  margin: 0;
+  box-sizing: border-box;
+}
+
+/* Navbar */
+.navbar {
+  width: 100%;
+  background-size: cover;
+}
+
+/* Home background */
+.home-bg {
+  width: 100%;
+  height: 100vh;
+  background: url('./assets/header.jpg') no-repeat center center;
+  background-size: cover;
+  background-color: #000000cc; /* fallback */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+
+/* Optional overlay (semi-transparent layer on image if needed) */
+.background-color {
+  background-color: rgba(0, 0, 0, 0.5);
+  width: 100%;
+  height: 100vh;
+  position: absolute;
+  top: 0;
+  left: 0;
+}
+
+/* Buttons */
+.btn-1, .btn-2 {
+  border-radius: 50px;
+  padding: 10px 20px;
+  font-weight: 600;
+  transition: 0.3s ease;
+  min-width: 160px;
+  
+}
+
+.btn-1 {
+  background-color: white;
+  color: coral;
+  border: none;
+}
+
+.btn-1:hover {
+  background-color: coral;
+  color: white;
+}
+
+.btn-2 {
+  background-color: coral;
+  color: white;
+  border: none;
+}
+
+.btn-2:hover {
+  background-color: white;
+  color: coral;
+}
+
+/* Navbar link hover */
+.header-hover {
+  color: white !important;
+  font-weight: 800;
+  transition: 0.3s;
+}
+
+.header-hover:hover {
+  color: black !important;
+}
+
+/* Forgot link */
+.forgot {
+  color: coral;
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.forgot:hover {
+  text-decoration: underline;
+}
+
+/* Sidebar (if used) */
