@@ -35,7 +35,7 @@ const AdminPage = () => {
   const fetchFiles = async () => {
     setLoading(true);
     try {
-      const res = await axios.get('http://localhost:4000/exceldownload');
+      const res = await axios.get('https://ktu-resuly-analyser-backend.onrender.com/exceldownload');
       const fileList = res.data;
       setFiles(fileList);
       computeStats(fileList);
@@ -160,7 +160,7 @@ const AdminPage = () => {
                     <td>{new Date(file.createdAt).toLocaleString()}</td>
                     <td>
                       <a
-                        href={`http://localhost:4000/upload/${file.filename}`}
+                        href={`https://ktu-resuly-analyser-backend.onrender.com/upload/${file.filename}`}
                         download
                         className="btn btn-success btn-sm"
                       >

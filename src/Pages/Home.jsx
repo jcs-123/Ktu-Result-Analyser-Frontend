@@ -63,7 +63,7 @@ function Home() {
     }
 
     try {
-      const response = await axios.post('http://localhost:4000/add-register', registerData);
+      const response = await axios.post('https://ktu-resuly-analyser-backend.onrender.com/add-register', registerData);
       if (response.status === 201 || response.status === 200) {
         toast.success("Registration successful!");
         setRegisterData({
@@ -89,7 +89,7 @@ const handleLoginSubmit = async (e) => {
   }
 
   try {
-    const response = await axios.post('http://localhost:4000/login', { email, password });
+    const response = await axios.post('https://ktu-resuly-analyser-backend.onrender.com/login', { email, password });
 
     if (response.status === 200 && response.data.success) {
       toast.success("Login successful!");

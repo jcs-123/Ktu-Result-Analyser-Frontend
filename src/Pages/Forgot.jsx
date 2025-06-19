@@ -20,7 +20,7 @@ function Forgot() {
   if (!email) return toast.error("Please enter your registered email");
   setLoading(true);
   try {
-    const res = await axios.post('http://localhost:4000/forgot-password', { email });
+    const res = await axios.post('https://ktu-resuly-analyser-backend.onrender.com/forgot-password', { email });
 
     if (res.data.emailExists) {
       toast.success(res.data.message);

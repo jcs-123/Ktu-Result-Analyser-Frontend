@@ -56,7 +56,7 @@ const gradePointsMap = {
 useEffect(() => {
   async function fetchSubjects() {
     try {
-      const response = await fetch('http://localhost:4000/depdata');
+      const response = await fetch('https://ktu-resuly-analyser-backend.onrender.com/depdata');
       const subjects = await response.json();
 
       const lookup = {};
@@ -100,7 +100,7 @@ useEffect(() => {
       formData.append('filerev2015', uploadedFile);
       formData.append('email', userEmail);
 
-      const response = await fetch('http://localhost:4000/upload-rev2015', {
+      const response = await fetch('https://ktu-resuly-analyser-backend.onrender.com/upload-rev2015', {
         method: 'POST',
         body: formData,
       });
@@ -162,7 +162,7 @@ const parseContentString = (parsedContent) => {
 const fetchRawContent = async () => {
   try {
     // 1. Attempt to fetch data from the API
-    const response = await fetch('http://localhost:4000/revision2015', {
+    const response = await fetch('https://ktu-resuly-analyser-backend.onrender.com/revision2015', {
       headers: {
         'Content-Type': 'application/json',
         'Cache-Control': 'no-cache' // Ensure fresh data
@@ -304,7 +304,7 @@ const isArrear = (grade) => {
 useEffect(() => {
   const fetchSemCredits = async () => {
     try {
-      const res = await fetch('http://localhost:4000/getcredict');
+      const res = await fetch('https://ktu-resuly-analyser-backend.onrender.com/getcredict');
       if (!res.ok) throw new Error(`HTTP error! Status: ${res.status}`);
 
       const credits = await res.json();
@@ -535,7 +535,7 @@ const exportDepartmentWiseExcel = async () => {
   formData.append('excelFile', file);
 
   try {
-    await axios.post('http://localhost:4000/exceldownload', formData, {
+    await axios.post('https://ktu-resuly-analyser-backend.onrender.com/exceldownload', formData, {
       headers: {
         'Content-Type': 'multipart/form-data',
       },
@@ -571,7 +571,7 @@ const handleAddSubject = async () => {
      toast.error('All fields are required');
     }
 
-    const response = await fetch('http://localhost:4000/add-depdata', {
+    const response = await fetch('https://ktu-resuly-analyser-backend.onrender.com/add-depdata', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
