@@ -32,7 +32,7 @@ function Credits() {
             Developed by the Technical Team at <strong>Jyothi Engineering College</strong>, Cheruthuruthy.
           </p>
           <p className="text-muted small">
-            For any queries or feedback, please contact <a href="mailto:tbi@jecc.ac.in">tbi@jecc.ac.in</a>
+            For any queries or feedback, please contact <a href="mailto:tbi@jecc.ac.in">jcs@jecc.ac.in</a>
           </p>
         </Modal.Body>
       </Modal>

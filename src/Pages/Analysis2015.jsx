@@ -666,7 +666,7 @@ const handleAddSubject = async () => {
     <Nav.Item className="nav-item mb-2">
       <Nav.Link as={Link} to="/Analysis2019" className="text-white d-flex align-items-center">
         <FontAwesomeIcon icon={faFileExcel} className="nav-icon" />
-        {expanded && <span className="ms-3">2019 SCHEME</span>}
+        {expanded && <span className="ms-3">RESULT ANALYSER</span>}
       </Nav.Link>
     </Nav.Item>
     
@@ -708,7 +708,7 @@ const handleAddSubject = async () => {
             KTU B.Tech <span style={{ color: 'coral' }}>Result Analyser</span>
           </h1>
           <p className="mb-4">
-            2015 Scheme INDIVIDUAL RESULT ANALYSIS - Generate Individual Excel Report from PDF
+             INDIVIDUAL RESULT ANALYSIS - Generate Individual Excel Report from PDF
           </p>
 
           <label
@@ -916,15 +916,15 @@ const handleAddSubject = async () => {
 
 
           <div className="mt-5 text-danger small text-center">
-            NB:  If you find any issues with the generated excel file please Report issues to <a href="mailto:tbi@jecc.ac.in">tbi@jecc.ac.in</a> so that it will be helpful for us to maintain this application.
+            NB:  If you find any issues with the generated excel file please Report issues to <a href="mailto:jcs@jecc.ac.in">jcs@jecc.ac.in</a> so that it will be helpful for us to maintain this application.
           </div>
 
           <div className="mt-4">
             <h4 className="text-center">Disclaimer</h4>
              <p style={{ textAlign: "justify" }}>The analysis depends upon the structure of the PDF Result File provided by KTU. If you find any issues with the analysed excel file please
-                                    report to <a href="">tbi@jecc.ac.in.</a> Always verify the results generated. Subject with NA or Absent instead of
+                                    report to <a href="">jcs@jecc.ac.in.</a> Always verify the results generated. Subject with NA or Absent instead of
                                     grade is considered as an arrear. This application is not suitable for Reevaluation results. SGPA
-                                    calculated according to the KTU <a href="">2019 Regulations..</a> Please check the grade points on page 8 of the
+                                    calculated according to the KTU . Please check the grade points on page 8 of the
                                     regulations</p>
 
           </div>

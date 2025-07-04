@@ -75,7 +75,7 @@ function Dashboard() {
                   <Nav.Item className="nav-item mb-2">
                     <Nav.Link as={Link} to="/Analysis2019" className="text-white d-flex align-items-center">
                       <FontAwesomeIcon icon={faFileExcel} className="nav-icon" />
-                      {expanded && <span className="ms-3">2019 SCHEME</span>}
+                      {expanded && <span className="ms-3">RESULT ANALYSER</span>}
                     </Nav.Link>
                   </Nav.Item>
                    
@@ -118,9 +118,9 @@ function Dashboard() {
   </p>
   <p className="text-danger fw-semibold">
     Since the university has updated the results of <strong>S8 (2019 Batch)</strong>,
-    we have revised the analysis. Please email your suggestions to <a href="mailto:tbi@jecc.ac.in">tbi@jecc.ac.in</a>
+    we have revised the analysis. Please email your suggestions to <a href="mailto:jcs@jecc.ac.in">jcs@jecc.ac.in</a>
   </p>
-
+{/* 
   <div className="table-responsive mt-4">
     <table className="table table-bordered table-hover bg-white">
       <thead className="table-dark">
@@ -182,7 +182,7 @@ function Dashboard() {
         </tr>
       </tbody>
     </table>
-  </div>
+  </div> */}
 </div>
 
                 </div>
