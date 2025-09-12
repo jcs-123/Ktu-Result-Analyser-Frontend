@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Button, Nav, Table, Spinner, Modal  } from 'react-bootstrap';
-import {  Link } from 'react-router-dom';
+import { Button, Nav, Table, Spinner, Modal } from 'react-bootstrap';
+import { Link } from 'react-router-dom';
 import Form from 'react-bootstrap/Form';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
@@ -19,7 +19,7 @@ import jec from '../assets/jec.png';
 import Disclaimer from './Disclaimer';
 import Credits from './Credits';
 import axios from 'axios';
-import { toast,ToastContainer } from 'react-toastify';
+import { toast, ToastContainer } from 'react-toastify';
 
 function Analysis2015() {
   const [expanded, setExpanded] = useState(true);
@@ -29,53 +29,72 @@ function Analysis2015() {
   const [data, setData] = useState(null);
   const [loadingData, setLoadingData] = useState(false);
 
-  // subjectCode -> { department: string, credit: number }
+  // subjectCode -> { department: string, semester: string, credit: number }
   const [subjectCodeToDept, setSubjectCodeToDept] = useState({});
 
   const toggleSidebar = () => setExpanded(!expanded);
 
   // Grade to grade point mapping for SGPA calculation
-const gradePointsMap = {
-  S: 10,
-  'A+': 9,
-  A: 8.5,
-  'B+': 8,
-  B: 7.5,
-  'C+': 7,
-  C: 6.5,
-  D: 6,
-  P: 5.5,
-  F: 0,
-  FE: 0,
-  I: 0,
-   Absent: 0 ,
-   Withheld:0,
-};
+  const gradePointsMap = {
+    S: 10,
+    'A+': 9,
+    A: 8.5,
+    'B+': 8,
+    B: 7.5,
+    'C+': 7,
+    C: 6.5,
+    D: 6,
+    P: 5.5,
+    F: 0,
+    FE: 0,
+    I: 0,
+    Absent: 0,
+    Withheld: 0,
+  };
+
+  // ===== Register number parser: JEC20CE034 -> {college:'JEC', year:'20', dept:'CE', roll:'034'}
+  const parseRegisterNumber = (regNoRaw) => {
+    if (!regNoRaw || typeof regNoRaw !== 'string') return null;
+    const regNo = regNoRaw.trim().toUpperCase();
+    // COLLEGE(3 letters) + YEAR(2 digits) + DEPT(2–3 letters) + ROLL(3–5 digits)
+    const re = /^(?<college>[A-Z]{3})(?<year>\d{2})(?<dept>[A-Z]{2,3})(?<roll>\d{3,5})$/i;
+    const m = regNo.match(re);
+    if (!m || !m.groups) return null;
+    const { college, year, dept, roll } = m.groups;
+    return {
+      college: (college || '').toUpperCase(),
+      year: (year || '').padStart(2, '0'),
+      dept: (dept || '').toUpperCase(),
+      roll: roll || '',
+      raw: regNo,
+    };
+  };
+  // =====
 
   // Fetch subject meta data including credits & department
-useEffect(() => {
-  async function fetchSubjects() {
-    try {
-      const response = await fetch('https://ktu-resuly-analyser-backend.onrender.com/depdata');
-      const subjects = await response.json();
+  useEffect(() => {
+    async function fetchSubjects() {
+      try {
+        const response = await fetch('https://ktu-resuly-analyser-backend.onrender.com/depdata');
+        const subjects = await response.json();
 
-      const lookup = {};
-      subjects.forEach(({ SUBJETCODE, DEP, SEM, CREDIT }) => {
-        // Ensure all keys are uppercase for consistent lookup
-        const code = SUBJETCODE.toUpperCase();
-        lookup[code] = {
-          department: DEP || 'Unknown',
-          semester: SEM || '0', // Default to 0 if missing
-          credit: Number(CREDIT) || 0,
-        };
-      });
-      setSubjectCodeToDept(lookup);
-    } catch (error) {
-      console.error('Failed to fetch subjects:', error);
+        const lookup = {};
+        subjects.forEach(({ SUBJETCODE, DEP, SEM, CREDIT }) => {
+          const code = String(SUBJETCODE || '').toUpperCase();
+          lookup[code] = {
+            department: DEP || 'Unknown',
+            semester: SEM || '0', // Default to 0 if missing
+            credit: Number(CREDIT) || 0,
+          };
+        });
+        setSubjectCodeToDept(lookup);
+      } catch (error) {
+        console.error('Failed to fetch subjects:', error);
+      }
     }
-  }
-  fetchSubjects();
-}, []);
+    fetchSubjects();
+  }, []);
+
   // Handle file input change
   const handleFileChange = (e) => {
     const file = e.target.files?.[0];
@@ -117,173 +136,150 @@ useEffect(() => {
   };
 
   // Parse the multiline string from backend into array of student objects
-const parseContentString = (parsedContent) => {
-  if (!parsedContent || typeof parsedContent !== 'string' || parsedContent.trim() === '') return [];
+  const parseContentString = (parsedContent) => {
+    if (!parsedContent || typeof parsedContent !== 'string' || parsedContent.trim() === '') return [];
 
-  const lines = parsedContent
-    .trim()
-    .split('\n')
-    .map(line => line.trim())
-    .filter(line => line !== '');
+    const lines = parsedContent
+      .trim()
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line !== '');
 
-  const studentData = [];
+    const studentData = [];
 
-  // Improved register number regex
-  const regNoPattern = /^([A-Z]{0,5}\d{2}[A-Z]{2,3}\d{3,5})/i;
+    // Register token at line-start: JEC20CE034 (3 letters, 2 digits, 2–3 letters, 3–5 digits)
+    const regNoPattern = /^([A-Z]{3}\d{2}[A-Z]{2,3}\d{3,5})/i;
 
-  for (const line of lines) {
-    const match = line.match(regNoPattern);
-    if (!match) continue;
+    for (const line of lines) {
+      const match = line.match(regNoPattern);
+      if (!match) continue;
 
-    const studentId = match[1].toUpperCase();
-    const subjectsPart = line.slice(match[0].length).trim();
-    const studentObj = { studentId };
+      const studentId = match[1].toUpperCase();
+      const subjectsPart = line.slice(match[0].length).trim();
+      const studentObj = { studentId };
 
-    // More accurate subject-grade matching
-    const subjectGradeRegex = /([A-Z]{2,4}[0-9]{2,3})\s*\(\s*([A-F][+\-]?)\s*\)/gi;
-    let sgMatch;
+      // Subject-grade like CST309 (A+)
+      const subjectGradeRegex = /([A-Z]{2,4}[0-9]{2,3})\s*\(\s*([A-F][+\-]?)\s*\)/gi;
+      let sgMatch;
 
-    while ((sgMatch = subjectGradeRegex.exec(subjectsPart)) !== null) {
-      const subjectCode = sgMatch[1].toUpperCase();
-      const grade = sgMatch[2].toUpperCase();
-      studentObj[subjectCode] = grade;
+      while ((sgMatch = subjectGradeRegex.exec(subjectsPart)) !== null) {
+        const subjectCode = sgMatch[1].toUpperCase();
+        const grade = sgMatch[2].toUpperCase();
+        studentObj[subjectCode] = grade;
+      }
+
+      if (Object.keys(studentObj).length > 1) {
+        studentData.push(studentObj);
+      }
     }
 
-    if (Object.keys(studentObj).length > 1) {
-      studentData.push(studentObj);
-    }
-  }
-
-  return studentData;
-};
-
+    return studentData;
+  };
 
   // Fetch raw parsed content from backend (GET /revision2015)
-const fetchRawContent = async () => {
-  try {
-    // 1. Attempt to fetch data from the API
-    const response = await fetch('https://ktu-resuly-analyser-backend.onrender.com/revision2015', {
-      headers: {
-        'Content-Type': 'application/json',
-        'Cache-Control': 'no-cache' // Ensure fresh data
-      }
-    });
-
-    // 2. Check for successful response
-    if (!response.ok) {
-      // Try to get error details from response body
-      const errorData = await response.json().catch(() => ({}));
-      throw new Error(
-        errorData.message || 
-        `Server responded with status ${response.status}: ${response.statusText}`
-      );
-    }
-
-    // 3. Parse the response data
-    const jsonData = await response.json();
-
-
-
-
-
-    
-    // 4. Handle multiple possible response formats
-    const contentKeys = ['parsedContent', 'parsedcontent', 'data', 'content'];
-    for (const key of contentKeys) {
-      if (jsonData[key] !== undefined && jsonData[key] !== null) {
-        // Store the data in localStorage as backup
-        localStorage.setItem('lastFetchedData', JSON.stringify(jsonData[key]));
-        return jsonData[key];
-      }
-    }
-
-    // 5. If no valid content found, check localStorage
-    const cachedData = localStorage.getItem('lastFetchedData');
-    if (cachedData) {
-      console.warn('Using cached data as fallback');
-      return JSON.parse(cachedData);
-    }
-
-    // 6. Final fallback
-    throw new Error('No valid data found in response');
-    
-  } catch (error) {
-    console.error('Fetch error:', error);
-    
-    // 7. Comprehensive fallback strategy
+  const fetchRawContent = async () => {
     try {
+      const response = await fetch('https://ktu-resuly-analyser-backend.onrender.com/revision2015', {
+        headers: {
+          'Content-Type': 'application/json',
+          'Cache-Control': 'no-cache', // Ensure fresh data
+        },
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.message || `Server responded with status ${response.status}: ${response.statusText}`);
+      }
+
+      const jsonData = await response.json();
+
+      const contentKeys = ['parsedContent', 'parsedcontent', 'data', 'content'];
+      for (const key of contentKeys) {
+        if (jsonData[key] !== undefined && jsonData[key] !== null) {
+          localStorage.setItem('lastFetchedData', JSON.stringify(jsonData[key]));
+          return jsonData[key];
+        }
+      }
+
       const cachedData = localStorage.getItem('lastFetchedData');
       if (cachedData) {
-        console.warn('Using cached data after fetch failure');
+        console.warn('Using cached data as fallback');
         return JSON.parse(cachedData);
       }
-    } catch (e) {
-      console.error('Cache parse error:', e);
+
+      throw new Error('No valid data found in response');
+    } catch (error) {
+      console.error('Fetch error:', error);
+
+      try {
+        const cachedData = localStorage.getItem('lastFetchedData');
+        if (cachedData) {
+          console.warn('Using cached data after fetch failure');
+          return JSON.parse(cachedData);
+        }
+      } catch (e) {
+        console.error('Cache parse error:', e);
+      }
+
+      return '';
     }
-    
-    return '';
-  }
-};
+  };
 
+  const [examCentre, setExamCentre] = useState(''); // exam centre name
 
-
-
-
-const [examCentre, setExamCentre] = useState(''); // exam centre name
   // Fetch and parse data from backend
- const fetchParsedData = async () => {
-  setLoadingData(true);
-  setErrorMessage(null);
+  const fetchParsedData = async () => {
+    setLoadingData(true);
+    setErrorMessage(null);
 
-  try {
-    const rawContent = await fetchRawContent();
+    try {
+      const rawContent = await fetchRawContent();
 
-    if (!rawContent.trim()) {
-      setErrorMessage('No data found');
+      if (!rawContent.trim()) {
+        setErrorMessage('No data found');
+        setData(null);
+        setExamCentre('Exam Centre: Not Found');
+        return;
+      }
+
+      const extractedExamCentre = extractExamCentre(rawContent);
+      setExamCentre(extractedExamCentre);
+
+      const parsedData = parseContentString(rawContent);
+
+      if (!parsedData || parsedData.length === 0) {
+        setErrorMessage('No data parsed');
+        setData(null);
+        return;
+      }
+
+      setData(parsedData);
+    } catch (err) {
+      setErrorMessage(err.message);
       setData(null);
       setExamCentre('Exam Centre: Not Found');
-      return;
+    } finally {
+      setLoadingData(false);
+    }
+  };
+
+  const extractExamCentre = (raw) => {
+    if (!raw) return 'Exam Centre: Not Found';
+
+    const patterns = [
+      /Exam\s*Centre:\s*(.+)/i,
+      /Examination\s*Center:\s*(.+)/i,
+      /Center:\s*(.+)/i,
+      /College:\s*(.+)/i,
+    ];
+
+    for (const pattern of patterns) {
+      const match = raw.match(pattern);
+      if (match) return ` ${match[1].trim()}`;
     }
 
-    // ✅ Extract Exam Centre before parsing the full content
-    const extractedExamCentre = extractExamCentre(rawContent);
-    setExamCentre(extractedExamCentre);
-
-    const parsedData = parseContentString(rawContent);
-
-    if (!parsedData || parsedData.length === 0) {
-      setErrorMessage('No data parsed');
-      setData(null);
-      return;
-    }
-
-    setData(parsedData); // ✅ this is your student table data
-  } catch (err) {
-    setErrorMessage(err.message);
-    setData(null);
-    setExamCentre('Exam Centre: Not Found');
-  } finally {
-    setLoadingData(false);
-  }
-};
-const extractExamCentre = (raw) => {
-  if (!raw) return 'Exam Centre: Not Found';
-
-  const patterns = [
-    /Exam\s*Centre:\s*(.+)/i,
-    /Examination\s*Center:\s*(.+)/i,
-    /Center:\s*(.+)/i,
-    /College:\s*(.+)/i,
-  ];
-
-  for (const pattern of patterns) {
-    const match = raw.match(pattern);
-    if (match) return ` ${match[1].trim()}`;
-  }
-
-  return 'Exam Centre: Not Found';
-};
-
+    return 'Exam Centre: Not Found';
+  };
 
   // Clear file and data
   const handleClear = () => {
@@ -295,159 +291,143 @@ const extractExamCentre = (raw) => {
   };
 
   // Utility to check if a grade is an arrear (failed)
-const isArrear = (grade) => {
-  if (!grade) return false;
-  return ['F', 'FE', 'RA', 'I', 'ABSENT','Withheld'].includes(grade.toUpperCase());
-};
-
-  const [semesterCredits, setSemesterCredits] = useState({}); // { 'AD_S3': 23 }
-useEffect(() => {
-  const fetchSemCredits = async () => {
-    try {
-      const res = await fetch('https://ktu-resuly-analyser-backend.onrender.com/getcredict');
-      if (!res.ok) throw new Error(`HTTP error! Status: ${res.status}`);
-
-      const credits = await res.json();
-
-      if (!Array.isArray(credits)) {
-        throw new Error("Expected an array of credits");
-      }
-
-      const map = {};
-      credits.forEach(({ DEP, SEM, TOTALCREDIT }) => {
-        if (DEP && SEM) {
-          const key = `${DEP}_${SEM}`;
-          const credit = Number(TOTALCREDIT);
-          if (!isNaN(credit)) {
-            map[key] = credit;
-          }
-        }
-      });
-
-      console.log("✅ Mapped Semester Credits:", map);
-      setSemesterCredits(map);
-    } catch (err) {
-      console.error('❌ Failed to fetch semester credits:', err.message);
-    }
+  const isArrear = (grade) => {
+    if (!grade) return false;
+    return ['F', 'FE', 'RA', 'I', 'ABSENT', 'WITHHELD'].includes(String(grade).toUpperCase());
   };
 
-  fetchSemCredits();
-}, []);
+  const [semesterCredits, setSemesterCredits] = useState({}); // { 'AD_S3': 23 }
+  useEffect(() => {
+    const fetchSemCredits = async () => {
+      try {
+        const res = await fetch('https://ktu-resuly-analyser-backend.onrender.com/getcredict');
+        if (!res.ok) throw new Error(`HTTP error! Status: ${res.status}`);
 
+        const credits = await res.json();
 
-  
+        if (!Array.isArray(credits)) {
+          throw new Error('Expected an array of credits');
+        }
+
+        const map = {};
+        credits.forEach(({ DEP, SEM, TOTALCREDIT }) => {
+          if (DEP && SEM) {
+            const key = `${String(DEP).toUpperCase()}_${String(SEM).toUpperCase()}`;
+            const credit = Number(TOTALCREDIT);
+            if (!isNaN(credit)) {
+              map[key] = credit;
+            }
+          }
+        });
+
+        setSemesterCredits(map);
+      } catch (err) {
+        console.error('❌ Failed to fetch semester credits:', err.message);
+      }
+    };
+
+    fetchSemCredits();
+  }, []);
+
   // Calculate SGPA for each student from their grades & credits
   // Return object { studentId: string, sgpa: string }
-const calculateSGPAs = (students, subjectCodeToDept, semesterCreditMap) => {
-  if (!Array.isArray(students) || !subjectCodeToDept || !semesterCreditMap) {
-    console.error('Missing required data for SGPA calculation');
-    return {};
-  }
-
-  const result = {};
-
-  students.forEach((student) => {
-    let department = '';
-    let semester = '';
-    let found = false;
-
-    // Extract department & semester from subject info
-    for (const [code, grade] of Object.entries(student)) {
-      if (code === 'studentId') continue;
-      const info = subjectCodeToDept[code.toUpperCase()];
-      if (info?.department && info?.semester) {
-        department = info.department;
-        semester = info.semester.replace(/^S/, ''); // remove 'S'
-        found = true;
-        break;
-      }
+  const calculateSGPAs = (students, subjectCodeToDept, semesterCreditMap) => {
+    if (!Array.isArray(students) || !subjectCodeToDept || !semesterCreditMap) {
+      console.error('Missing required data for SGPA calculation');
+      return {};
     }
 
-    // Fallback to ID
-    if (!found) {
-      const idParts = student.studentId.match(/JEC(\d{2})([A-Z]{2})/);
-      department = idParts?.[2] || 'UNKNOWN';
-      semester = '0'; // fallback unknown semester
-    }
+    const result = {};
 
-    const semesterKey = `${department}_S${semester}`;
-    const totalSemesterCredits = semesterCreditMap[semesterKey];
+    students.forEach((student) => {
+      let department = '';
+      let semester = '';
+      let found = false;
 
-    if (!totalSemesterCredits || totalSemesterCredits <= 0) {
-      console.warn(`❌ No semester credits found for ${semesterKey}`);
-      result[student.studentId] = 'N/A';
-      return;
-    }
-
-    let totalGradePoints = 0;
-    let creditsAccounted = 0;
-
-    for (const [code, grade] of Object.entries(student)) {
-      if (code === 'studentId') continue;
-
-      const info = subjectCodeToDept[code.toUpperCase()];
-      if (!info) {
-        // console.warn(`⚠️ Subject info not found for ${code}`);
-        continue;
+      // Prefer subject metadata if present
+      for (const [code, grade] of Object.entries(student)) {
+        if (code === 'studentId') continue;
+        const info = subjectCodeToDept[String(code).toUpperCase()];
+        if (info?.department && info?.semester) {
+          department = String(info.department).toUpperCase();
+          semester = String(info.semester).toUpperCase().replace(/^S/, '');
+          found = true;
+          break;
+        }
       }
 
-      // Match only same department + semester
-      const isSameSem = info.semester.replace(/^S/, '') === semester;
-      if (info.department !== department || !isSameSem) continue;
-
-      const credit = Number(info.credit) || 0;
-      const gradePoint = gradePointsMap[grade?.toUpperCase()];
-      if (gradePoint === undefined) {
-        // console.warn(`⚠️ Invalid grade "${grade}" for ${code}`);
-        continue;
+      // Fallback: derive department from register number (JEC20CE034 -> CE)
+      if (!found) {
+        const parsed = parseRegisterNumber(student.studentId);
+        department = parsed?.dept || 'UNKNOWN';
+        semester = '0';
       }
 
-      totalGradePoints += gradePoint * credit;
-      creditsAccounted += credit;
-    }
+      const semesterKey = `${department}_S${semester}`;
+      const totalSemesterCredits = semesterCreditMap[semesterKey];
 
-    if (creditsAccounted === 0) {
-      result[student.studentId] = 'N/A';
-      // console.warn(`⚠️ No valid subjects for ${student.studentId}`);
-    } else {
-      const sgpa = totalGradePoints / totalSemesterCredits;
-      result[student.studentId] = sgpa.toFixed(2);
-    }
+      if (!totalSemesterCredits || totalSemesterCredits <= 0) {
+        result[student.studentId] = 'N/A';
+        return;
+      }
 
-    console.debug('SGPA Calculation:', {
-      studentId: student.studentId,
-      department,
-      semester,
-      semesterKey,
-      totalSemesterCredits,
-      totalGradePoints,
-      calculatedSGPA: result[student.studentId]
+      let totalGradePoints = 0;
+      let creditsAccounted = 0;
+
+      for (const [code, grade] of Object.entries(student)) {
+        if (code === 'studentId') continue;
+
+        const info = subjectCodeToDept[String(code).toUpperCase()];
+        if (!info) continue;
+
+        const isSameSem = String(info.semester || '').toUpperCase().replace(/^S/, '') === semester;
+        if (String(info.department || '').toUpperCase() !== department || !isSameSem) continue;
+
+        const credit = Number(info.credit) || 0;
+        const gp = gradePointsMap[String(grade || '').toUpperCase()];
+        if (gp === undefined) continue;
+
+        totalGradePoints += gp * credit;
+        creditsAccounted += credit;
+      }
+
+      if (creditsAccounted === 0) {
+        result[student.studentId] = 'N/A';
+      } else {
+        const sgpa = totalGradePoints / totalSemesterCredits;
+        result[student.studentId] = sgpa.toFixed(2);
+      }
     });
-  });
 
-  return result;
-};
+    return result;
+  };
 
-  // Get department wise flattened data for table display
-  // Output: { [departmentName]: [{ studentId, subjectCode, grade, credit, arrear }] }
+  // Department-wise flattening
+  // NOW groups by department parsed from REGISTER NUMBER (primary), subject metadata is secondary
   const getDepartmentWiseData = () => {
     if (!data) return {};
 
     const deptData = {};
 
     data.forEach((student) => {
+      // Primary department = from register number
+      const regParsed = parseRegisterNumber(student.studentId);
+      const regDept = (regParsed?.dept || 'UNKNOWN').toUpperCase();
+
       Object.entries(student).forEach(([key, grade]) => {
         if (key === 'studentId') return;
 
-        const subjectCode = key;
+        const subjectCode = String(key).toUpperCase();
         const deptInfo = subjectCodeToDept[subjectCode] || {};
-        const department = deptInfo.department || 'Unknown Department';
+
+        // Keep subject department if needed, but GROUP by regDept
         const credit = deptInfo.credit || '-';
         const arrear = isArrear(grade);
+        const groupKey = regDept; // <-- This ensures accurate dept-wise separation by register number
 
-        if (!deptData[department]) deptData[department] = [];
+        if (!deptData[groupKey]) deptData[groupKey] = [];
 
-        deptData[department].push({
+        deptData[groupKey].push({
           studentId: student.studentId,
           subjectCode,
           grade,
@@ -459,11 +439,12 @@ const calculateSGPAs = (students, subjectCodeToDept, semesterCreditMap) => {
 
     return deptData;
   };
-const deptGroupedData = getDepartmentWiseData();
-const studentSgpas = calculateSGPAs(data, subjectCodeToDept, semesterCredits);
 
-  // Export Excel with arrear and SGPA included
+  const deptGroupedData = getDepartmentWiseData();
+  const studentSgpas = calculateSGPAs(data, subjectCodeToDept, semesterCredits);
 
+  // Export Excel with Dept & Roll included (derived from register no.)
+// Export Excel with 3 bold, centered headings (merged cells). No Dept/Roll columns.
 const exportDepartmentWiseExcel = async () => {
   if (!data || data.length === 0) {
     alert('No data available to export');
@@ -473,45 +454,107 @@ const exportDepartmentWiseExcel = async () => {
   const workbook = XLSX.utils.book_new();
   const deptData = getDepartmentWiseData();
 
-  Object.entries(deptData).forEach(([deptName, records]) => {
+  // Clean college name from examCentre
+  const getCollegeName = () => {
+    const raw = (examCentre || '').toString().trim();
+    const cleaned = raw.replace(/^(Exam\s*Centre:|Examination\s*Center:|Center:|College:)\s*/i, '').trim();
+    return cleaned || 'College: N/A';
+  };
+
+  Object.entries(deptData).forEach(([deptCode, records]) => {
     const studentMap = {};
     const subjectSet = new Set();
 
+    // Build student map and collect subjects
     records.forEach(({ studentId, subjectCode, grade, arrear }) => {
       if (!studentMap[studentId]) {
         studentMap[studentId] = {
           'Register No': studentId,
-          SGPA: studentSgpas[studentId] || '-',
+          SGPA: studentSgpas?.[studentId] || '-',
           Arrears: 0,
         };
       }
-
       studentMap[studentId][subjectCode] = grade;
       if (arrear) studentMap[studentId].Arrears += 1;
       subjectSet.add(subjectCode);
     });
 
     const allSubjects = Array.from(subjectSet).sort();
-
-    const sheetData = Object.values(studentMap).map((student) => {
-      allSubjects.forEach((subject) => {
-        if (!(subject in student)) {
-          student[subject] = '-';
-        }
-      });
-      return student;
-    });
-
+    // Dept & Roll removed
     const columns = ['Register No', ...allSubjects, 'SGPA', 'Arrears'];
 
-    // Insert exam centre as top row manually
-    const centreRow = [[examCentre || 'Exam Centre: UNKNOWN']];
+    // Normalize subject columns
+    const sheetData = Object.values(studentMap).map((row) => {
+      allSubjects.forEach((s) => { if (!(s in row)) row[s] = '-'; });
+      return row;
+    });
+
+    // Headings
+    const heading1 = ['KTU RESULT ANALYSER'];
+    const heading2 = ['Powered by Jyothi Engineering College'];
+    const heading3 = [getCollegeName()];
+
     const headerRow = [columns];
     const dataRows = sheetData.map((row) => columns.map((col) => row[col]));
-    const fullSheetData = [...centreRow, [], ...headerRow, ...dataRows];
 
-    const worksheet = XLSX.utils.aoa_to_sheet(fullSheetData);
-    XLSX.utils.book_append_sheet(workbook, worksheet, deptName.substring(0, 31));
+    // Compose sheet: 3 headings, spacer, header, data
+    const fullSheetData = [
+      heading1,
+      heading2,
+      heading3,
+      [],                 // spacer
+      ...headerRow,
+      ...dataRows,
+    ];
+
+    const ws = XLSX.utils.aoa_to_sheet(fullSheetData);
+
+    // Merge the heading rows across full width
+    const lastColIndex = columns.length - 1;
+    ws['!merges'] = (ws['!merges'] || []).concat([
+      { s: { r: 0, c: 0 }, e: { r: 0, c: lastColIndex } }, // A1..last
+      { s: { r: 1, c: 0 }, e: { r: 1, c: lastColIndex } }, // A2..last
+      { s: { r: 2, c: 0 }, e: { r: 2, c: lastColIndex } }, // A3..last
+    ]);
+
+    // --- Styling (requires xlsx-js-style or a style-capable build) ---
+    try {
+      // Bold + centered headings
+      ['A1', 'A2', 'A3'].forEach((addr) => {
+        if (ws[addr]) {
+          ws[addr].s = {
+            font: { bold: true, sz: 14 },
+            alignment: { horizontal: 'center', vertical: 'center' },
+          };
+        }
+      });
+
+      // Bold + centered header row (row 5 in Excel; 0-based index is 4)
+      const headerRowIndex0 = 4;
+      columns.forEach((_, i) => {
+        const colLetter = XLSX.utils.encode_col(i); // 0->A, 1->B ...
+        const cellAddr = `${colLetter}${headerRowIndex0 + 1}`;
+        if (ws[cellAddr]) {
+          ws[cellAddr].s = {
+            font: { bold: true },
+            alignment: { horizontal: 'center', vertical: 'center' },
+          };
+        }
+      });
+
+      // Optional row heights for headings
+      ws['!rows'] = ws['!rows'] || [];
+      ws['!rows'][0] = { hpt: 20 };
+      ws['!rows'][1] = { hpt: 18 };
+      ws['!rows'][2] = { hpt: 18 };
+    } catch {
+      // Safe to ignore if styles not supported
+    }
+
+    // Optional: column widths
+    ws['!cols'] = columns.map(() => ({ wch: 14 }));
+
+    XLSX.utils.book_append_sheet(workbook, ws, String(deptCode).substring(0, 31));
   });
 
   const wbout = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
@@ -519,196 +562,173 @@ const exportDepartmentWiseExcel = async () => {
     type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   });
 
-  // File name using exam centre (sanitize filename)
-  const safeExamName = (examCentre || 'KTU_Result').replace(/[^a-zA-Z0-9 ]/g, '').replace(/\s+/g, '_');
+  const safeExamName = (examCentre || 'KTU_Result')
+    .replace(/[^a-zA-Z0-9 ]/g, '')
+    .replace(/\s+/g, '_');
   const filename = `${safeExamName}_DeptWise_Results.xlsx`;
 
-  // Save locally
   saveAs(blob, filename);
 
-  // Upload to backend
+  // Upload to backend (unchanged)
   const file = new File([blob], filename, {
     type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   });
-
   const formData = new FormData();
   formData.append('excelFile', file);
-
   try {
     await axios.post('https://ktu-resuly-analyser-backend.onrender.com/exceldownload', formData, {
-      headers: {
-        'Content-Type': 'multipart/form-data',
-      },
+      headers: { 'Content-Type': 'multipart/form-data' },
     });
   } catch (error) {
     console.error('Excel upload failed:', error);
   }
 };
 
-// Add near the top with other useState declarations
-const [showAddSubjectModal, setShowAddSubjectModal] = useState(false);
-const [newSubject, setNewSubject] = useState({
-  DEP: '',
-  SEM: '',
-  SUBJETCODE: '',
-  SUBJECT: '',
-  CREDIT: ''
-});
 
-const handleAddSubject = async () => {
-  try {
-    // Normalize data
-    const postData = {
-      DEP: String(newSubject.DEP || '').trim().toUpperCase(),
-      SEM: String(newSubject.SEM || '').trim().toUpperCase(),
-      SUBJETCODE: String(newSubject.SUBJETCODE || '').trim().toUpperCase(), // ✅ Fixed typo
-      SUBJECT: String(newSubject.SUBJECT || '').trim(),
-      CREDIT: Math.max(0, Math.min(10, Number(newSubject.CREDIT) || 0))
-    };
+  // Add near the top with other useState declarations
+  const [showAddSubjectModal, setShowAddSubjectModal] = useState(false);
+  const [newSubject, setNewSubject] = useState({
+    DEP: '',
+    SEM: '',
+    SUBJETCODE: '',
+    SUBJECT: '',
+    CREDIT: '',
+  });
 
-    // Basic Validation
-    if (!postData.DEP || !postData.SEM || !postData.SUBJETCODE || !postData.SUBJECT) {
-     toast.error('All fields are required');
-    }
+  const handleAddSubject = async () => {
+    try {
+      // Normalize data
+      const postData = {
+        DEP: String(newSubject.DEP || '').trim().toUpperCase(),
+        SEM: String(newSubject.SEM || '').trim().toUpperCase(),
+        SUBJETCODE: String(newSubject.SUBJETCODE || '').trim().toUpperCase(),
+        SUBJECT: String(newSubject.SUBJECT || '').trim(),
+        CREDIT: Math.max(0, Math.min(10, Number(newSubject.CREDIT) || 0)),
+      };
 
-    const response = await fetch('https://ktu-resuly-analyser-backend.onrender.com/add-depdata', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(postData)
-    });
-
-    // Validate JSON response
-    const contentType = response.headers.get('content-type');
-    if (!contentType || !contentType.includes('application/json')) {
-      const text = await response.text();
-      throw new Error(`Server returned: ${text.slice(0, 100)}...`);
-    }
-
-    const result = await response.json();
-
-    if (!response.ok) {
-      throw new Error(result.message || 'Request failed');
-    }
-
-    // On success
-    setSubjectCodeToDept(prev => ({
-      ...prev,
-      [postData.SUBJETCODE]: {
-        department: postData.DEP,
-        semester: postData.SEM,
-        credit: postData.CREDIT,
-        subject: postData.SUBJECT
+      // Basic Validation
+      if (!postData.DEP || !postData.SEM || !postData.SUBJETCODE || !postData.SUBJECT) {
+        toast.error('All fields are required');
       }
-    }));
 
-    setNewSubject({ DEP: '', SEM: '', SUBJETCODE: '', SUBJECT: '', CREDIT: '' }); // ✅ Fixed key names
-    setShowAddSubjectModal(false);
-   toast.success('Subject added successfully!');
+      const response = await fetch('https://ktu-resuly-analyser-backend.onrender.com/add-depdata', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(postData),
+      });
 
-  } catch (error) {
-    console.error('Error:', error);
-    toast.error(`Error: ${error.message}`);
-  }
-};
+      const contentType = response.headers.get('content-type');
+      if (!contentType || !contentType.includes('application/json')) {
+        const text = await response.text();
+        throw new Error(`Server returned: ${text.slice(0, 100)}...`);
+      }
 
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.message || 'Request failed');
+      }
+
+      // On success
+      setSubjectCodeToDept((prev) => ({
+        ...prev,
+        [postData.SUBJETCODE]: {
+          department: postData.DEP,
+          semester: postData.SEM,
+          credit: postData.CREDIT,
+          subject: postData.SUBJECT,
+        },
+      }));
+
+      setNewSubject({ DEP: '', SEM: '', SUBJETCODE: '', SUBJECT: '', CREDIT: '' });
+      setShowAddSubjectModal(false);
+      toast.success('Subject added successfully!');
+    } catch (error) {
+      console.error('Error:', error);
+      toast.error(`Error: ${error.message}`);
+    }
+  };
 
   return (
     <div className="d-flex ">
       {/* Sidebar */}
-     <div
-  className={`sidebar ${expanded ? 'expanded' : 'collapsed'} d-flex flex-column text-white`}
-  style={{
-    width: expanded ? '280px' : '80px',
-    minHeight: '100vh',
-    transition: 'all 0.3s ease',
-    backgroundColor: 'CORAL',
-    padding: '1rem 0.5rem'
-  }}
->
-  {/* Header with toggle button */}
-  <div className="sidebar-header d-flex justify-content-between align-items-center mb-4 px-2">
-    {expanded && <h2 className="m-0 fs-5 fw-bold">RESULT ANALYSER</h2>}
-    <Button 
-      variant="link" 
-      onClick={toggleSidebar}
-      className="p-0 text-white"
-      aria-label={expanded ? 'Collapse sidebar' : 'Expand sidebar'}
-    >
-      {expanded ? (
-        <FontAwesomeIcon icon={faChevronLeft} />
-      ) : (
-        <FontAwesomeIcon icon={faChevronRight} />
-      )}
-    </Button>
-  </div>
+      <div
+        className={`sidebar ${expanded ? 'expanded' : 'collapsed'} d-flex flex-column text-white`}
+        style={{
+          width: expanded ? '280px' : '80px',
+          minHeight: '100vh',
+          transition: 'all 0.3s ease',
+          backgroundColor: 'CORAL',
+          padding: '1rem 0.5rem',
+        }}
+      >
+        {/* Header with toggle button */}
+        <div className="sidebar-header d-flex justify-content-between align-items-center mb-4 px-2">
+          {expanded && <h2 className="m-0 fs-5 fw-bold">RESULT ANALYSER</h2>}
+          <Button
+            variant="link"
+            onClick={toggleSidebar}
+            className="p-0 text-white"
+            aria-label={expanded ? 'Collapse sidebar' : 'Expand sidebar'}
+          >
+            {expanded ? <FontAwesomeIcon icon={faChevronLeft} /> : <FontAwesomeIcon icon={faChevronRight} />}
+          </Button>
+        </div>
 
-  {/* Logo */}
-  <div className="sidebar-logo text-center mb-4 px-2">
-    <img 
-      src={jec} 
-      alt="College Logo" 
-      className="img-fluid" 
-      style={{ maxWidth: expanded ? '180px' : '50px' }}
-    />
-  </div>
+        {/* Logo */}
+        <div className="sidebar-logo text-center mb-4 px-2">
+          <img src={jec} alt="College Logo" className="img-fluid" style={{ maxWidth: expanded ? '180px' : '50px' }} />
+        </div>
 
-  {/* Navigation Items */}
-  <Nav className="sidebar-nav flex-column flex-grow-1 px-2">
-    <Nav.Item className="nav-item mb-2">
-      <Nav.Link as={Link} to="/Dashboard" className="text-white d-flex align-items-center">
-        <FontAwesomeIcon icon={faChartBar} className="nav-icon" />
-        {expanded && <span className="ms-3">OVERALL</span>}
-      </Nav.Link>
-    </Nav.Item>
-    
-    <Nav.Item className="nav-item mb-2">
-      <Nav.Link as={Link} to="/Analysis2019" className="text-white d-flex align-items-center">
-        <FontAwesomeIcon icon={faFileExcel} className="nav-icon" />
-        {expanded && <span className="ms-3">RESULT ANALYSER</span>}
-      </Nav.Link>
-    </Nav.Item>
-    
-    {/* Footer Items */}
-     <Nav.Item className="mb-2">
-  <Nav.Link as="div" className="text-white d-flex align-items-center">
-    <FontAwesomeIcon icon={faTriangleExclamation} />
-    {expanded && <span className="ms-3"><Disclaimer /></span>}
-  </Nav.Link>
-</Nav.Item>
+        {/* Navigation Items */}
+        <Nav className="sidebar-nav flex-column flex-grow-1 px-2">
+          <Nav.Item className="nav-item mb-2">
+            <Nav.Link as={Link} to="/Dashboard" className="text-white d-flex align-items-center">
+              <FontAwesomeIcon icon={faChartBar} className="nav-icon" />
+              {expanded && <span className="ms-3">OVERALL</span>}
+            </Nav.Link>
+          </Nav.Item>
 
-<Nav.Item className="mb-2">
-  <Nav.Link as="div" className="text-white d-flex align-items-center">
-    <FontAwesomeIcon icon={faGem} />
-    {expanded && <span className="ms-3"><Credits /></span>}
-  </Nav.Link>
-</Nav.Item>
+          <Nav.Item className="nav-item mb-2">
+            <Nav.Link as={Link} to="/Analysis2019" className="text-white d-flex align-items-center">
+              <FontAwesomeIcon icon={faFileExcel} className="nav-icon" />
+              {expanded && <span className="ms-3">RESULT ANALYSER</span>}
+            </Nav.Link>
+          </Nav.Item>
 
-      
-      <Nav.Item className="nav-item">
-        <Nav.Link as={Link} to="/" className="text-white d-flex align-items-center">
-          <FontAwesomeIcon icon={faRightFromBracket} className="nav-icon" />
-          {expanded && <span className="ms-3">LOGOUT</span>}
-        </Nav.Link>
-      </Nav.Item>
-    
-  
-  </Nav>
+          {/* Footer Items */}
+          <Nav.Item className="mb-2">
+            <Nav.Link as="div" className="text-white d-flex align-items-center">
+              <FontAwesomeIcon icon={faTriangleExclamation} />
+              {expanded && <span className="ms-3"><Disclaimer /></span>}
+            </Nav.Link>
+          </Nav.Item>
+          <Nav.Item className="mb-2">
+            <Nav.Link as="div" className="text-white d-flex align-items-center">
+              <FontAwesomeIcon icon={faGem} />
+              {expanded && <span className="ms-3"><Credits /></span>}
+            </Nav.Link>
+          </Nav.Item>
 
-
-
-</div>
+          <Nav.Item className="nav-item">
+            <Nav.Link as={Link} to="/" className="text-white d-flex align-items-center">
+              <FontAwesomeIcon icon={faRightFromBracket} className="nav-icon" />
+              {expanded && <span className="ms-3">LOGOUT</span>}
+            </Nav.Link>
+          </Nav.Item>
+        </Nav>
+      </div>
 
       {/* Main content */}
-
       <div className="p-4 flex-grow-1">
         <div className="text-center">
           <h1 className="fw-bold" style={{ fontSize: '3rem' }}>
             KTU B.Tech <span style={{ color: 'coral' }}>Result Analyser</span>
           </h1>
           <p className="mb-4">
-             INDIVIDUAL RESULT ANALYSIS - Generate Individual Excel Report from PDF
+            INDIVIDUAL RESULT ANALYSIS - Generate Individual Excel Report from PDF
           </p>
 
           <label
@@ -726,110 +746,109 @@ const handleAddSubject = async () => {
             style={{ display: 'none' }}
           />
 
-    {uploadedFile && (
-  <div className="mt-3">
-    <p>
-      <strong>Selected file:</strong> {uploadedFile.name}
-    </p>
-    <Button onClick={handleUpload} disabled={uploading}>
-      {uploading ? (
-        <>
-          <Spinner animation="border" size="sm" /> Uploading...
-        </>
-      ) : (
-        'Analyze'
-      )}
-    </Button>
-    <Button variant="secondary" className="ms-2 mt-2" onClick={handleClear} disabled={uploading}>
-      Clear
-    </Button>
+          {uploadedFile && (
+            <div className="mt-3">
+              <p>
+                <strong>Selected file:</strong> {uploadedFile.name}
+              </p>
+              <Button onClick={handleUpload} disabled={uploading}>
+                {uploading ? (
+                  <>
+                    <Spinner animation="border" size="sm" /> Uploading...
+                  </>
+                ) : (
+                  'Analyze'
+                )}
+              </Button>
+              <Button variant="secondary" className="ms-2 mt-2" onClick={handleClear} disabled={uploading}>
+                Clear
+              </Button>
 
-   
-<Button
-  variant="warning"
-  className="ms-2 mt-2"
-  onClick={() => setShowAddSubjectModal(true)}
->
-  Add Unknown Subjects  
-</Button>
-   {/* Add this Modal just before the final closing </div> */}
-<Modal show={showAddSubjectModal} onHide={() => setShowAddSubjectModal(false)}>
-  <Modal.Header closeButton>
-    <Modal.Title>Add New Subject</Modal.Title>
-  </Modal.Header>
-  <Modal.Body>
-    <Form>
-      <Form.Group className="mb-3">
-        <Form.Label>Department Code (e.g., AD)</Form.Label>
-        <Form.Control 
-          type="text" 
-          value={newSubject.DEP}
-          onChange={(e) => setNewSubject({...newSubject, DEP: e.target.value.toUpperCase()})}
-          placeholder="AD"
-          required
-        />
-      </Form.Group>
-      
-      <Form.Group className="mb-3">
-        <Form.Label>Semester (e.g., S5)</Form.Label>
-        <Form.Control 
-          type="text" 
-          value={newSubject.SEM}
-          onChange={(e) => setNewSubject({...newSubject, SEM: e.target.value.toUpperCase()})}
-          placeholder="S5"
-          required
-        />
-      </Form.Group>
-      
-      <Form.Group className="mb-3">
-        <Form.Label>Subject Code (e.g., CST309)</Form.Label>
-        <Form.Control 
-          type="text" 
-          value={newSubject.SUBJETCODE}
-          onChange={(e) => setNewSubject({...newSubject, SUBJETCODE: e.target.value.toUpperCase()})}
-          placeholder="CST309"
-          required
-        />
-      </Form.Group>
-      
-      <Form.Group className="mb-3">
-        <Form.Label>Subject Name</Form.Label>
-        <Form.Control 
-          type="text" 
-          value={newSubject.SUBJECT}
-          onChange={(e) => setNewSubject({...newSubject, SUBJECT: e.target.value})}
-          placeholder="MANAGEMENT OF SOFTWARE SYSTEMS"
-          required
-        />
-      </Form.Group>
-      
-      <Form.Group className="mb-3">
-        <Form.Label>Credits</Form.Label>
-        <Form.Control 
-          type="number" 
-          min="0"
-          max="10"
-          value={newSubject.CREDIT}
-          onChange={(e) => setNewSubject({...newSubject, CREDIT: parseInt(e.target.value)})}
-          required
-        />
-      </Form.Group>
-    </Form>
-  </Modal.Body>
-  <Modal.Footer>
-    <Button variant="secondary" onClick={() => setShowAddSubjectModal(false)}>
-      Cancel
-    </Button>
-    <Button variant="primary" onClick={handleAddSubject}>
-      Save Subject
-    </Button>
-  </Modal.Footer>
-</Modal>
-            <ToastContainer position="top-right" autoClose={3000} />
+              <Button
+                variant="warning"
+                className="ms-2 mt-2"
+                onClick={() => setShowAddSubjectModal(true)}
+              >
+                Add Unknown Subjects
+              </Button>
 
-  </div>
-  
-)}
+              {/* Add Subject Modal */}
+              <Modal show={showAddSubjectModal} onHide={() => setShowAddSubjectModal(false)}>
+                <Modal.Header closeButton>
+                  <Modal.Title>Add New Subject</Modal.Title>
+                </Modal.Header>
+                <Modal.Body>
+                  <Form>
+                    <Form.Group className="mb-3">
+                      <Form.Label>Department Code (e.g., AD)</Form.Label>
+                      <Form.Control
+                        type="text"
+                        value={newSubject.DEP}
+                        onChange={(e) => setNewSubject({ ...newSubject, DEP: e.target.value.toUpperCase() })}
+                        placeholder="AD"
+                        required
+                      />
+                    </Form.Group>
+
+                    <Form.Group className="mb-3">
+                      <Form.Label>Semester (e.g., S5)</Form.Label>
+                      <Form.Control
+                        type="text"
+                        value={newSubject.SEM}
+                        onChange={(e) => setNewSubject({ ...newSubject, SEM: e.target.value.toUpperCase() })}
+                        placeholder="S5"
+                        required
+                      />
+                    </Form.Group>
+
+                    <Form.Group className="mb-3">
+                      <Form.Label>Subject Code (e.g., CST309)</Form.Label>
+                      <Form.Control
+                        type="text"
+                        value={newSubject.SUBJETCODE}
+                        onChange={(e) => setNewSubject({ ...newSubject, SUBJETCODE: e.target.value.toUpperCase() })}
+                        placeholder="CST309"
+                        required
+                      />
+                    </Form.Group>
+
+                    <Form.Group className="mb-3">
+                      <Form.Label>Subject Name</Form.Label>
+                      <Form.Control
+                        type="text"
+                        value={newSubject.SUBJECT}
+                        onChange={(e) => setNewSubject({ ...newSubject, SUBJECT: e.target.value })}
+                        placeholder="MANAGEMENT OF SOFTWARE SYSTEMS"
+                        required
+                      />
+                    </Form.Group>
+
+                    <Form.Group className="mb-3">
+                      <Form.Label>Credits</Form.Label>
+                      <Form.Control
+                        type="number"
+                        min="0"
+                        max="10"
+                        value={newSubject.CREDIT}
+                        onChange={(e) => setNewSubject({ ...newSubject, CREDIT: parseInt(e.target.value) })}
+                        required
+                      />
+                    </Form.Group>
+                  </Form>
+                </Modal.Body>
+                <Modal.Footer>
+                  <Button variant="secondary" onClick={() => setShowAddSubjectModal(false)}>
+                    Cancel
+                  </Button>
+                  <Button variant="primary" onClick={handleAddSubject}>
+                    Save Subject
+                  </Button>
+                </Modal.Footer>
+              </Modal>
+
+              <ToastContainer position="top-right" autoClose={3000} />
+            </div>
+          )}
 
           {errorMessage && <div className="alert alert-danger mt-3">{errorMessage}</div>}
 
@@ -840,80 +859,76 @@ const handleAddSubject = async () => {
             </div>
           )}
 
-  {data && (
-  <>
-    <div className="mt-4">
-      <div className="text-center mb-3">
-        <h5 className="fw-bold">{examCentre}</h5>
-        <h5 className="fw-bold">Department-wise Report</h5>
-      </div>
+          {data && (
+            <>
+              <div className="mt-4">
+                <div className="text-center mb-3">
+                  <h5 className="fw-bold">{examCentre}</h5>
+                  <h5 className="fw-bold">Department-wise Report</h5>
+                </div>
 
-      {Object.entries(deptGroupedData).map(([deptName, records]) => {
-        const subjectCodes = Array.from(
-          new Set(records.map((r) => r.subjectCode))
-        ).sort();
+                {Object.entries(deptGroupedData).map(([deptName, records]) => {
+                  const subjectCodes = Array.from(new Set(records.map((r) => r.subjectCode))).sort();
 
-        const studentMap = {};
-        records.forEach(({ studentId, subjectCode, grade }) => {
-          if (!studentMap[studentId]) studentMap[studentId] = {};
-          studentMap[studentId][subjectCode] = grade;
-        });
+                  const studentMap = {};
+                  records.forEach(({ studentId, subjectCode, grade }) => {
+                    if (!studentMap[studentId]) studentMap[studentId] = {};
+                    studentMap[studentId][subjectCode] = grade;
+                  });
 
-        return (
-          <div key={deptName} className="mb-4">
-            <h6 className="fw-bold text-primary mb-2">{deptName}</h6>
-            <div className="table-responsive">
-              <Table
-                striped
-                bordered
-                hover
-                size="sm"
-                className="table-sm small text-center align-middle text-nowrap"
-              >
-                <thead className="table-secondary">
-                  <tr>
-                    <th className="text-start">Register No</th>
-                    {subjectCodes.map((code) => (
-                      <th key={code}>{code}</th>
-                    ))}
-                    <th>SGPA</th>
-                    <th>Arrears</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {Object.entries(studentMap).map(([studentId, grades]) => {
-                    const arrearCount = Object.values(grades).filter((g) => isArrear(g)).length;
+                  return (
+                    <div key={deptName} className="mb-4">
+                      <h6 className="fw-bold text-primary mb-2">{deptName}</h6>
+                      <div className="table-responsive">
+                        <Table
+                          striped
+                          bordered
+                          hover
+                          size="sm"
+                          className="table-sm small text-center align-middle text-nowrap"
+                        >
+                          <thead className="table-secondary">
+                            <tr>
+                              <th className="text-start">Register No</th>
+                              {subjectCodes.map((code) => (
+                                <th key={code}>{code}</th>
+                              ))}
+                              <th>SGPA</th>
+                              <th>Arrears</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {Object.entries(studentMap).map(([studentId, grades]) => {
+                              const arrearCount = Object.values(grades).filter((g) => isArrear(g)).length;
 
-                    return (
-                      <tr key={studentId}>
-                        <td className="text-start">{studentId}</td>
-                        {subjectCodes.map((code) => (
-                          <td key={code}>{grades[code] || '-'}</td>
-                        ))}
-                        <td>{studentSgpas[studentId] || '-'}</td>
-                        <td>{arrearCount}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </Table>
-            </div>
-          </div>
-        );
-      })}
-    </div>
+                              return (
+                                <tr key={studentId}>
+                                  <td className="text-start">{studentId}</td>
+                                  {subjectCodes.map((code) => (
+                                    <td key={code}>{grades[code] || '-'}</td>
+                                  ))}
+                                  <td>{studentSgpas[studentId] || '-'}</td>
+                                  <td>{arrearCount}</td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </Table>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
 
-    <div className="alert alert-success mt-3 text-center">
-      <h5>Analysis completed successfully!</h5>
-      <p>Total records processed: {data.length}</p>
-      <Button className="mt-3" onClick={exportDepartmentWiseExcel}>
-        <FontAwesomeIcon icon={faFileExcel} /> Download Department-wise Excel Report
-      </Button>
-    </div>
-  </>
-)}
-
-
+              <div className="alert alert-success mt-3 text-center">
+                <h5>Analysis completed successfully!</h5>
+                <p>Total records processed: {data.length}</p>
+                <Button className="mt-3" onClick={exportDepartmentWiseExcel}>
+                  <FontAwesomeIcon icon={faFileExcel} /> Download Department-wise Excel Report
+                </Button>
+              </div>
+            </>
+          )}
 
           <div className="mt-5 text-danger small text-center">
             NB:  If you find any issues with the generated excel file please Report issues to <a href="mailto:jcs@jecc.ac.in">jcs@jecc.ac.in</a> so that it will be helpful for us to maintain this application.
@@ -921,17 +936,16 @@ const handleAddSubject = async () => {
 
           <div className="mt-4">
             <h4 className="text-center">Disclaimer</h4>
-             <p style={{ textAlign: "justify" }}>The analysis depends upon the structure of the PDF Result File provided by KTU. If you find any issues with the analysed excel file please
-                                    report to <a href="">jcs@jecc.ac.in.</a> Always verify the results generated. Subject with NA or Absent instead of
-                                    grade is considered as an arrear. This application is not suitable for Reevaluation results. SGPA
-                                    calculated according to the KTU . Please check the grade points on page 8 of the
-                                    regulations</p>
-
+            <p style={{ textAlign: 'justify' }}>
+              The analysis depends upon the structure of the PDF Result File provided by KTU. If you find any issues with
+              the analysed excel file please report to <a href="">jcs@jecc.ac.in.</a> Always verify the results generated.
+              Subject with NA or Absent instead of grade is considered as an arrear. This application is not suitable for
+              Reevaluation results. SGPA calculated according to the KTU . Please check the grade points on page 8 of the
+              regulations
+            </p>
           </div>
         </div>
       </div>
-   
-
     </div>
   );
 }
