@@ -3,7 +3,7 @@ import { Button, Nav, Table, Spinner, Modal } from 'react-bootstrap';
 import { Link } from 'react-router-dom';
 import Form from 'react-bootstrap/Form';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import {
+import ExcelJS from 'exceljs';import {
   faChartBar,
   faChevronLeft,
   faChevronRight,
@@ -28,6 +28,7 @@ function Analysis2015() {
   const [errorMessage, setErrorMessage] = useState(null);
   const [data, setData] = useState(null);
   const [loadingData, setLoadingData] = useState(false);
+const [examTitle, setExamTitle] = useState("");
 
   // subjectCode -> { department: string, semester: string, credit: number }
   const [subjectCodeToDept, setSubjectCodeToDept] = useState({});
@@ -45,6 +46,7 @@ function Analysis2015() {
     C: 6.5,
     D: 6,
     P: 5.5,
+    PASS: 5.5,
     F: 0,
     FE: 0,
     I: 0,
@@ -136,45 +138,50 @@ function Analysis2015() {
   };
 
   // Parse the multiline string from backend into array of student objects
-  const parseContentString = (parsedContent) => {
-    if (!parsedContent || typeof parsedContent !== 'string' || parsedContent.trim() === '') return [];
+const parseContentString = (parsedContent) => {
+  if (!parsedContent || typeof parsedContent !== "string" || parsedContent.trim() === "")
+    return [];
 
-    const lines = parsedContent
-      .trim()
-      .split('\n')
-      .map((line) => line.trim())
-      .filter((line) => line !== '');
+  // 🧹 Clean up hidden unicode characters and merge wrapped lines
+  const cleanText = parsedContent
+    .replace(/\u00A0|\u200B|\r/g, " ")          // remove hidden chars
+    .replace(/,\s*\n/g, ", ")                   // join lines split after commas
+    .replace(/\s+/g, " ")                       // normalize spaces
+    .trim();
 
-    const studentData = [];
+  const studentData = [];
+  const regNoPattern = /([A-Z]{3}\d{2}[A-Z]{2,3}\d{3,5})/gi;
+  const chunks = cleanText.split(regNoPattern).filter(Boolean);
 
-    // Register token at line-start: JEC20CE034 (3 letters, 2 digits, 2–3 letters, 3–5 digits)
-    const regNoPattern = /^([A-Z]{3}\d{2}[A-Z]{2,3}\d{3,5})/i;
+  // 🚀 Loop through register–data pairs
+  for (let i = 0; i < chunks.length; i++) {
+    const maybeReg = chunks[i].trim();
+    if (!/^[A-Z]{3}\d{2}[A-Z]{2,3}\d{3,5}$/i.test(maybeReg)) continue;
 
-    for (const line of lines) {
-      const match = line.match(regNoPattern);
-      if (!match) continue;
+    const studentId = maybeReg.toUpperCase();
+    const subjectsPart = (chunks[i + 1] || "").trim();
+    const studentObj = { studentId };
 
-      const studentId = match[1].toUpperCase();
-      const subjectsPart = line.slice(match[0].length).trim();
-      const studentObj = { studentId };
+    // 🎯 Match subjects like PCCET205(F), UCHUT128(PASS), GCESL218(A+)
+    const subjectGradeRegex =
+      /([A-Z]{2,6}\d{2,5})\s*\(\s*([A-Z]{1,3}\+?|PASS|P|ABSENT|WITHHELD|FAIL)\s*\)/gi;
 
-      // Subject-grade like CST309 (A+)
-      const subjectGradeRegex = /([A-Z]{2,4}[0-9]{2,3})\s*\(\s*([A-F][+\-]?)\s*\)/gi;
-      let sgMatch;
-
-      while ((sgMatch = subjectGradeRegex.exec(subjectsPart)) !== null) {
-        const subjectCode = sgMatch[1].toUpperCase();
-        const grade = sgMatch[2].toUpperCase();
-        studentObj[subjectCode] = grade;
-      }
-
-      if (Object.keys(studentObj).length > 1) {
-        studentData.push(studentObj);
-      }
+    let sg;
+    while ((sg = subjectGradeRegex.exec(subjectsPart)) !== null) {
+      const subjectCode = sg[1].replace(/\s+/g, "").toUpperCase();
+      const grade = sg[2].toUpperCase().trim();
+      studentObj[subjectCode] = grade;
     }
 
-    return studentData;
-  };
+    if (Object.keys(studentObj).length > 1) {
+      studentData.push(studentObj);
+    }
+  }
+
+  return studentData;
+};
+
+
 
   // Fetch raw parsed content from backend (GET /revision2015)
   const fetchRawContent = async () => {
@@ -242,8 +249,10 @@ function Analysis2015() {
         return;
       }
 
-      const extractedExamCentre = extractExamCentre(rawContent);
-      setExamCentre(extractedExamCentre);
+    const { title, centre } = extractExamInfo(rawContent);
+setExamTitle(title);
+setExamCentre(centre);
+
 
       const parsedData = parseContentString(rawContent);
 
@@ -263,23 +272,36 @@ function Analysis2015() {
     }
   };
 
-  const extractExamCentre = (raw) => {
-    if (!raw) return 'Exam Centre: Not Found';
+ // Extract both exam title and exam centre
+const extractExamInfo = (raw) => {
+  if (!raw) return { title: "Exam Title: Not Found", centre: "Exam Centre: Not Found" };
 
-    const patterns = [
-      /Exam\s*Centre:\s*(.+)/i,
-      /Examination\s*Center:\s*(.+)/i,
-      /Center:\s*(.+)/i,
-      /College:\s*(.+)/i,
-    ];
+  let title = "Exam Title: Not Found";
+  let centre = "Exam Centre: Not Found";
 
-    for (const pattern of patterns) {
-      const match = raw.match(pattern);
-      if (match) return ` ${match[1].trim()}`;
+  // 🧠 Find the first full exam title line like “B.Tech S2 (R) Exam May 2025 (2024 Scheme) (S2 Result)”
+  const titlePattern = /(B\.?Tech.*?\(S\d.*?\))/i;
+  const titleMatch = raw.match(titlePattern);
+  if (titleMatch) title = titleMatch[1].trim();
+
+  // 🏫 Find exam centre / college line
+  const centrePatterns = [
+    /Exam\s*Centre:\s*(.+)/i,
+    /Examination\s*Center:\s*(.+)/i,
+    /Center:\s*(.+)/i,
+    /College:\s*(.+)/i,
+  ];
+  for (const pattern of centrePatterns) {
+    const match = raw.match(pattern);
+    if (match) {
+      centre = match[1].trim();
+      break;
     }
+  }
 
-    return 'Exam Centre: Not Found';
-  };
+  return { title, centre };
+};
+
 
   // Clear file and data
   const handleClear = () => {
@@ -445,144 +467,277 @@ function Analysis2015() {
 
   // Export Excel with Dept & Roll included (derived from register no.)
 // Export Excel with 3 bold, centered headings (merged cells). No Dept/Roll columns.
+
+
+
+
 const exportDepartmentWiseExcel = async () => {
   if (!data || data.length === 0) {
-    alert('No data available to export');
+    alert("No data available to export");
     return;
   }
 
-  const workbook = XLSX.utils.book_new();
-  const deptData = getDepartmentWiseData();
+  // === Workbook setup ===
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator = "KTU Result Analyser";
+  workbook.created = new Date();
 
-  // Clean college name from examCentre
   const getCollegeName = () => {
-    const raw = (examCentre || '').toString().trim();
-    const cleaned = raw.replace(/^(Exam\s*Centre:|Examination\s*Center:|Center:|College:)\s*/i, '').trim();
-    return cleaned || 'College: N/A';
+    const raw = (examCentre || "").toString().trim();
+    const cleaned = raw.replace(/^(Exam\s*Centre:|Examination\s*Center:|Center:|College:)\s*/i, "").trim();
+    return cleaned || "College: N/A";
   };
 
-  Object.entries(deptData).forEach(([deptCode, records]) => {
+  // 🎨 === Consistent professional color palette ===
+  const COLORS = {
+    BLUE: "305496",       // Deep KTU blue
+    GREEN: "70AD47",      // Performance header green
+    ORANGE: "ED7D31",     // Section header orange
+    GOLD: "FFD966",       // Department title gold
+    SILVER: "E7E6E6",     // Background gray
+    RED: "FF0000",        // Highlight red
+    WHITE: "FFFFFF",      // Text white
+    BLACK: "000000"       // Border black
+  };
+
+  // === Styles ===
+  const styles = {
+    headerPrimary: {
+      font: { name: "Calibri", size: 16, bold: true, color: { argb: COLORS.WHITE } },
+      fill: { type: "pattern", pattern: "solid", fgColor: { argb: COLORS.BLUE } },
+      alignment: { horizontal: "center", vertical: "middle" },
+      border: { top: { style: "thin" }, left: { style: "thin" }, right: { style: "thin" }, bottom: { style: "thin" } }
+    },
+    headerSecondary: {
+      font: { name: "Calibri", size: 14, bold: true, color: { argb: COLORS.WHITE } },
+      fill: { type: "pattern", pattern: "solid", fgColor: { argb: COLORS.GREEN } },
+      alignment: { horizontal: "center", vertical: "middle" },
+      border: { top: { style: "thin" }, left: { style: "thin" }, right: { style: "thin" }, bottom: { style: "thin" } }
+    },
+    headerTertiary: {
+      font: { name: "Calibri", size: 12, bold: true, color: { argb: COLORS.BLACK } },
+      fill: { type: "pattern", pattern: "solid", fgColor: { argb: COLORS.GOLD } },
+      alignment: { horizontal: "center", vertical: "middle" },
+      border: { top: { style: "thin" }, left: { style: "thin" }, right: { style: "thin" }, bottom: { style: "thin" } }
+    },
+    sectionHeader: {
+      font: { name: "Calibri", size: 11, bold: true, color: { argb: COLORS.WHITE } },
+      fill: { type: "pattern", pattern: "solid", fgColor: { argb: COLORS.ORANGE } },
+      alignment: { horizontal: "center", vertical: "middle" },
+      border: { top: { style: "thin" }, left: { style: "thin" }, right: { style: "thin" }, bottom: { style: "thin" } }
+    },
+    tableHeader: {
+      font: { name: "Calibri", size: 10, bold: true, color: { argb: COLORS.WHITE } },
+      fill: { type: "pattern", pattern: "solid", fgColor: { argb: COLORS.BLUE } },
+      alignment: { horizontal: "center", vertical: "middle", wrapText: true },
+      border: { top: { style: "thin" }, left: { style: "thin" }, right: { style: "thin" }, bottom: { style: "thin" } }
+    },
+    dataCell: {
+      font: { name: "Calibri", size: 9 },
+      alignment: { horizontal: "center", vertical: "middle" },
+      border: { top: { style: "thin" }, left: { style: "thin" }, right: { style: "thin" }, bottom: { style: "thin" } }
+    },
+    highlightCell: {
+      font: { name: "Calibri", size: 9, bold: true, color: { argb: COLORS.RED } },
+      alignment: { horizontal: "center", vertical: "middle" },
+      border: { top: { style: "thin" }, left: { style: "thin" }, right: { style: "thin" }, bottom: { style: "thin" } }
+    },
+    metricCell: {
+      font: { name: "Calibri", size: 10, bold: true },
+      alignment: { horizontal: "center", vertical: "middle" },
+      fill: { type: "pattern", pattern: "solid", fgColor: { argb: COLORS.SILVER } },
+      border: { top: { style: "thin" }, left: { style: "thin" }, right: { style: "thin" }, bottom: { style: "thin" } }
+    }
+  };
+
+  // ===== DEPARTMENT-WISE SHEETS =====
+  Object.entries(getDepartmentWiseData()).forEach(([deptName, records]) => {
+    const ws = workbook.addWorksheet(deptName.slice(0, 31));
+    let row = 1;
+
+    // Map students
     const studentMap = {};
     const subjectSet = new Set();
-
-    // Build student map and collect subjects
     records.forEach(({ studentId, subjectCode, grade, arrear }) => {
       if (!studentMap[studentId]) {
-        studentMap[studentId] = {
-          'Register No': studentId,
-          SGPA: studentSgpas?.[studentId] || '-',
-          Arrears: 0,
-        };
+        studentMap[studentId] = { "Register No": studentId, SGPA: studentSgpas?.[studentId] || "-", Arrears: 0 };
       }
       studentMap[studentId][subjectCode] = grade;
       if (arrear) studentMap[studentId].Arrears += 1;
       subjectSet.add(subjectCode);
     });
 
-    const allSubjects = Array.from(subjectSet).sort();
-    // Dept & Roll removed
-    const columns = ['Register No', ...allSubjects, 'SGPA', 'Arrears'];
+    const subjects = Array.from(subjectSet).sort();
+    const cols = ["Register No", ...subjects, "SGPA", "Arrears"];
 
-    // Normalize subject columns
-    const sheetData = Object.values(studentMap).map((row) => {
-      allSubjects.forEach((s) => { if (!(s in row)) row[s] = '-'; });
-      return row;
+    // === Headers ===
+    const merged = (text, style) => {
+      ws.mergeCells(row, 1, row, cols.length);
+      ws.getCell(row, 1).value = text;
+      Object.assign(ws.getCell(row, 1), style);
+      row++;
+    };
+
+    merged("KTU RESULT ANALYSER", styles.headerPrimary);
+    merged(examTitle || "Exam Title", styles.headerSecondary);
+    merged(`Department: ${deptName}`, styles.headerTertiary);
+    merged(getCollegeName(), styles.headerTertiary);
+    row++;
+
+    // === Student Table ===
+    const headerRow = ws.getRow(row);
+    cols.forEach((c, i) => {
+      headerRow.getCell(i + 1).value = c;
+      Object.assign(headerRow.getCell(i + 1), styles.tableHeader);
+    });
+    row++;
+
+    Object.values(studentMap).forEach((s) => {
+      const r = ws.getRow(row);
+      cols.forEach((c, i) => {
+        const v = s[c] ?? "-";
+        r.getCell(i + 1).value = v;
+        if (c === "Arrears" && v > 0) Object.assign(r.getCell(i + 1), styles.highlightCell);
+        else if (isArrear(v)) Object.assign(r.getCell(i + 1), styles.highlightCell);
+        else Object.assign(r.getCell(i + 1), styles.dataCell);
+      });
+      row++;
+    });
+    row++;
+
+    // === Performance Analysis ===
+    const perf = (() => {
+      const total = Object.keys(studentMap).length;
+      let pass = 0,
+        fail = 0;
+      const gCount = { S: 0, "A+": 0, A: 0, "B+": 0, B: 0, "C+": 0, C: 0, D: 0, P: 0, F: 0, FE: 0 };
+      Object.values(studentMap).forEach((s) => {
+        let arrear = false;
+        subjects.forEach((sub) => {
+          const g = s[sub];
+          if (isArrear(g)) arrear = true;
+          if (gCount[g] !== undefined) gCount[g]++;
+        });
+        arrear ? fail++ : pass++;
+      });
+      return { total, pass, fail, percent: ((pass / total) * 100).toFixed(2), gCount };
+    })();
+
+    merged("PERFORMANCE ANALYSIS", styles.sectionHeader);
+
+    [
+      ["Pass Percentage", `${perf.percent}%`],
+      ["Total Students", perf.total],
+      ["Total Passed", perf.pass],
+      ["Total Failed", perf.fail]
+    ].forEach(([label, val]) => {
+      ws.getCell(row, 1).value = label;
+      ws.getCell(row, 2).value = val;
+      Object.assign(ws.getCell(row, 1), styles.metricCell);
+      Object.assign(ws.getCell(row, 2), styles.metricCell);
+      row++;
+    });
+    row++;
+
+    // === Grade Distribution ===
+    merged("GRADE DISTRIBUTION", styles.sectionHeader);
+    const gKeys = Object.keys(perf.gCount);
+    gKeys.forEach((k, i) => {
+      ws.getCell(row, i + 1).value = k;
+      Object.assign(ws.getCell(row, i + 1), styles.tableHeader);
+    });
+    row++;
+    gKeys.forEach((k, i) => {
+      ws.getCell(row, i + 1).value = perf.gCount[k];
+      Object.assign(ws.getCell(row, i + 1), styles.dataCell);
+    });
+    row += 2;
+
+    // === Subject-wise Analysis ===
+    merged("SUBJECT-WISE ANALYSIS", styles.sectionHeader);
+    const subCols = ["SubCode", "PassPercent", "Pass", "Fail", "S", "A+", "A", "B+", "B", "C+", "C", "D", "P", "F", "FE"];
+
+    const subHeader = ws.getRow(row);
+    subCols.forEach((c, i) => {
+      subHeader.getCell(i + 1).value = c;
+      Object.assign(subHeader.getCell(i + 1), styles.tableHeader);
+    });
+    row++;
+
+    const subData = {};
+    records.forEach(({ subjectCode, grade }) => {
+      if (!subData[subjectCode])
+        subData[subjectCode] = { pass: 0, fail: 0, grades: Object.fromEntries(subCols.slice(4).map((x) => [x, 0])) };
+      if (isArrear(grade)) subData[subjectCode].fail++;
+      else subData[subjectCode].pass++;
+      if (subData[subjectCode].grades[grade] !== undefined) subData[subjectCode].grades[grade]++;
     });
 
-    // Headings
-    const heading1 = ['KTU RESULT ANALYSER'];
-    const heading2 = ['Powered by Jyothi Engineering College'];
-    const heading3 = [getCollegeName()];
-
-    const headerRow = [columns];
-    const dataRows = sheetData.map((row) => columns.map((col) => row[col]));
-
-    // Compose sheet: 3 headings, spacer, header, data
-    const fullSheetData = [
-      heading1,
-      heading2,
-      heading3,
-      [],                 // spacer
-      ...headerRow,
-      ...dataRows,
-    ];
-
-    const ws = XLSX.utils.aoa_to_sheet(fullSheetData);
-
-    // Merge the heading rows across full width
-    const lastColIndex = columns.length - 1;
-    ws['!merges'] = (ws['!merges'] || []).concat([
-      { s: { r: 0, c: 0 }, e: { r: 0, c: lastColIndex } }, // A1..last
-      { s: { r: 1, c: 0 }, e: { r: 1, c: lastColIndex } }, // A2..last
-      { s: { r: 2, c: 0 }, e: { r: 2, c: lastColIndex } }, // A3..last
-    ]);
-
-    // --- Styling (requires xlsx-js-style or a style-capable build) ---
-    try {
-      // Bold + centered headings
-      ['A1', 'A2', 'A3'].forEach((addr) => {
-        if (ws[addr]) {
-          ws[addr].s = {
-            font: { bold: true, sz: 14 },
-            alignment: { horizontal: 'center', vertical: 'center' },
-          };
-        }
+    Object.entries(subData).forEach(([sub, stat]) => {
+      const tot = stat.pass + stat.fail;
+      const passP = tot ? ((stat.pass / tot) * 100).toFixed(2) : "0";
+      const r = ws.getRow(row);
+      const vals = [
+        sub,
+        passP,
+        stat.pass,
+        stat.fail,
+        ...subCols.slice(4).map((g) => stat.grades[g] ?? 0)
+      ];
+      vals.forEach((v, i) => {
+        r.getCell(i + 1).value = v;
+        Object.assign(r.getCell(i + 1), styles.dataCell);
       });
+      row++;
+    });
 
-      // Bold + centered header row (row 5 in Excel; 0-based index is 4)
-      const headerRowIndex0 = 4;
-      columns.forEach((_, i) => {
-        const colLetter = XLSX.utils.encode_col(i); // 0->A, 1->B ...
-        const cellAddr = `${colLetter}${headerRowIndex0 + 1}`;
-        if (ws[cellAddr]) {
-          ws[cellAddr].s = {
-            font: { bold: true },
-            alignment: { horizontal: 'center', vertical: 'center' },
-          };
-        }
-      });
-
-      // Optional row heights for headings
-      ws['!rows'] = ws['!rows'] || [];
-      ws['!rows'][0] = { hpt: 20 };
-      ws['!rows'][1] = { hpt: 18 };
-      ws['!rows'][2] = { hpt: 18 };
-    } catch {
-      // Safe to ignore if styles not supported
-    }
-
-    // Optional: column widths
-    ws['!cols'] = columns.map(() => ({ wch: 14 }));
-
-    XLSX.utils.book_append_sheet(workbook, ws, String(deptCode).substring(0, 31));
+    ws.columns = cols.map(() => ({ width: 12 }));
   });
 
-  const wbout = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
-  const blob = new Blob([wbout], {
-    type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-  });
+  // === Save file ===
+  const buf = await workbook.xlsx.writeBuffer();
+  const blob = new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+  const safeName = `${(examTitle || "KTU_Result").replace(/[^a-zA-Z0-9 ]/g, "").replace(/\s+/g, "_")}_${getCollegeName()
+    .replace(/[^a-zA-Z0-9 ]/g, "")
+    .replace(/\s+/g, "_")}_Full_Report.xlsx`;
+  saveAs(blob, safeName);
 
-  const safeExamName = (examCentre || 'KTU_Result')
-    .replace(/[^a-zA-Z0-9 ]/g, '')
-    .replace(/\s+/g, '_');
-  const filename = `${safeExamName}_DeptWise_Results.xlsx`;
-
-  saveAs(blob, filename);
-
-  // Upload to backend (unchanged)
-  const file = new File([blob], filename, {
-    type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-  });
-  const formData = new FormData();
-  formData.append('excelFile', file);
+  // Optional upload
   try {
-    await axios.post('https://ktu-resuly-analyser-backend.onrender.com/exceldownload', formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-    });
-  } catch (error) {
-    console.error('Excel upload failed:', error);
+    const file = new File([blob], safeName, { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+    const formData = new FormData();
+    formData.append("excelFile", file);
+    await axios.post("https://ktu-resuly-analyser-backend.onrender.com/exceldownload", formData);
+  } catch (err) {
+    console.error("Excel upload failed:", err);
   }
 };
+
+// Helper function for overall summary sheet
+const addOverallSummarySheet = async (workbook, collegeName) => {
+  const worksheet = workbook.addWorksheet('OVERALL SUMMARY');
+  
+  let currentRow = 1;
+
+  // Main Title
+  worksheet.mergeCells(currentRow, 1, currentRow, 15);
+  worksheet.getCell(currentRow, 1).value = 'KTU RESULT ANALYSER - OVERALL SUMMARY';
+  Object.assign(worksheet.getCell(currentRow, 1), styles.headerPrimary);
+  currentRow++;
+
+  // College Name
+  worksheet.mergeCells(currentRow, 1, currentRow, 15);
+  worksheet.getCell(currentRow, 1).value = collegeName;
+  Object.assign(worksheet.getCell(currentRow, 1), styles.headerSecondary);
+  currentRow += 2;
+
+  // Add your overall summary content here following the same pattern...
+  // You can reuse the performance analysis and subject-wise analysis logic
+
+  worksheet.columns = new Array(15).fill({ width: 12 });
+};
+
+
 
 
   // Add near the top with other useState declarations
@@ -650,6 +805,77 @@ const exportDepartmentWiseExcel = async () => {
       toast.error(`Error: ${error.message}`);
     }
   };
+  const computePerformanceAnalysis = () => {
+  if (!data) return null;
+
+  let totalStudents = data.length;
+  let totalPassed = 0;
+  let totalFailed = 0;
+  const gradeCount = {
+    S: 0, 'A+': 0, A: 0, 'B+': 0, B: 0,
+    'C+': 0, C: 0, D: 0, P: 0, F: 0, FE: 0
+  };
+
+  data.forEach((student) => {
+    let hasArrear = false;
+    Object.entries(student).forEach(([sub, grade]) => {
+      if (sub === "studentId") return;
+      if (isArrear(grade)) {
+        hasArrear = true;
+      }
+      if (gradeCount[grade] !== undefined) {
+        gradeCount[grade] += 1;
+      }
+    });
+
+    if (hasArrear) totalFailed++;
+    else totalPassed++;
+  });
+
+  const passPercentage = ((totalPassed / totalStudents) * 100).toFixed(2);
+
+  return { totalStudents, totalPassed, totalFailed, passPercentage, gradeCount };
+};
+const computeSubjectWiseAnalysis = () => {
+  if (!data) return [];
+
+  const subjectStats = {};
+
+  data.forEach((student) => {
+    Object.entries(student).forEach(([sub, grade]) => {
+      if (sub === "studentId") return;
+      if (!subjectStats[sub]) {
+        subjectStats[sub] = {
+          pass: 0,
+          fail: 0,
+          grades: { S:0,'A+':0,A:0,'B+':0,B:0,'C+':0,C:0,D:0,P:0,F:0,FE:0 }
+        };
+      }
+      if (isArrear(grade)) {
+        subjectStats[sub].fail++;
+      } else {
+        subjectStats[sub].pass++;
+      }
+      if (subjectStats[sub].grades[grade] !== undefined) {
+        subjectStats[sub].grades[grade]++;
+      }
+    });
+  });
+
+  // Convert into array with Pass %
+  return Object.entries(subjectStats).map(([sub, stats]) => {
+    const total = stats.pass + stats.fail;
+    const passPercent = total > 0 ? ((stats.pass / total) * 100).toFixed(2) : "0";
+    return {
+      subCode: sub,
+      passPercent,
+      pass: stats.pass,
+      fail: stats.fail,
+      ...stats.grades,
+    };
+  });
+};
+
 
   return (
     <div className="d-flex ">
@@ -862,71 +1088,274 @@ const exportDepartmentWiseExcel = async () => {
           {data && (
             <>
               <div className="mt-4">
-                <div className="text-center mb-3">
-                  <h5 className="fw-bold">{examCentre}</h5>
-                  <h5 className="fw-bold">Department-wise Report</h5>
-                </div>
+                 <div className="d-flex justify-content-between align-items-center mb-3">
+    <div className="text-center flex-grow-1">
+     <h5 className="fw-bold text-primary">{examTitle}</h5>
+<h6 className="fw-bold text-dark">{examCentre}</h6>
+<h5 className="fw-bold mt-2">Department-wise Report</h5>
 
-                {Object.entries(deptGroupedData).map(([deptName, records]) => {
-                  const subjectCodes = Array.from(new Set(records.map((r) => r.subjectCode))).sort();
+    </div>
 
-                  const studentMap = {};
-                  records.forEach(({ studentId, subjectCode, grade }) => {
-                    if (!studentMap[studentId]) studentMap[studentId] = {};
-                    studentMap[studentId][subjectCode] = grade;
-                  });
+    {/* ✅ Excel Button */}
+    <div>
+      <Button className="btn-success ms-3" onClick={exportDepartmentWiseExcel}>
+        <FontAwesomeIcon icon={faFileExcel} /> Download Excel
+      </Button>
+    </div>
+  </div>
 
-                  return (
-                    <div key={deptName} className="mb-4">
-                      <h6 className="fw-bold text-primary mb-2">{deptName}</h6>
-                      <div className="table-responsive">
-                        <Table
-                          striped
-                          bordered
-                          hover
-                          size="sm"
-                          className="table-sm small text-center align-middle text-nowrap"
-                        >
-                          <thead className="table-secondary">
-                            <tr>
-                              <th className="text-start">Register No</th>
-                              {subjectCodes.map((code) => (
-                                <th key={code}>{code}</th>
-                              ))}
-                              <th>SGPA</th>
-                              <th>Arrears</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {Object.entries(studentMap).map(([studentId, grades]) => {
-                              const arrearCount = Object.values(grades).filter((g) => isArrear(g)).length;
+             {Object.entries(deptGroupedData).map(([deptName, records]) => {
+  const subjectCodes = Array.from(new Set(records.map((r) => r.subjectCode))).sort();
 
-                              return (
-                                <tr key={studentId}>
-                                  <td className="text-start">{studentId}</td>
-                                  {subjectCodes.map((code) => (
-                                    <td key={code}>{grades[code] || '-'}</td>
-                                  ))}
-                                  <td>{studentSgpas[studentId] || '-'}</td>
-                                  <td>{arrearCount}</td>
-                                </tr>
-                              );
-                            })}
-                          </tbody>
-                        </Table>
-                      </div>
-                    </div>
-                  );
-                })}
+  const studentMap = {};
+  records.forEach(({ studentId, subjectCode, grade }) => {
+    if (!studentMap[studentId]) studentMap[studentId] = {};
+    studentMap[studentId][subjectCode] = grade;
+  });
+
+  // === Department-specific performance analysis ===
+  const computeDeptPerformance = () => {
+    let totalStudents = Object.keys(studentMap).length;
+    let totalPassed = 0, totalFailed = 0;
+    const gradeCount = { S:0,'A+':0,A:0,'B+':0,B:0,'C+':0,C:0,D:0,P:0,F:0,FE:0 };
+
+    Object.values(studentMap).forEach((grades) => {
+      let hasArrear = false;
+      Object.values(grades).forEach((g) => {
+        if (isArrear(g)) hasArrear = true;
+        if (gradeCount[g] !== undefined) gradeCount[g] += 1;
+      });
+      if (hasArrear) totalFailed++; else totalPassed++;
+    });
+
+    const passPercentage = totalStudents > 0 
+      ? ((totalPassed / totalStudents) * 100).toFixed(2) 
+      : "0";
+
+    return { totalStudents, totalPassed, totalFailed, passPercentage, gradeCount };
+  };
+
+  const computeDeptSubjectAnalysis = () => {
+    const subjectStats = {};
+    records.forEach(({ subjectCode, grade }) => {
+      if (!subjectStats[subjectCode]) {
+        subjectStats[subjectCode] = {
+          pass: 0, fail: 0,
+          grades: { S:0,'A+':0,A:0,'B+':0,B:0,'C+':0,C:0,D:0,P:0,F:0,FE:0 }
+        };
+      }
+      if (isArrear(grade)) subjectStats[subjectCode].fail++;
+      else subjectStats[subjectCode].pass++;
+      if (subjectStats[subjectCode].grades[grade] !== undefined) {
+        subjectStats[subjectCode].grades[grade]++;
+      }
+    });
+
+    return Object.entries(subjectStats).map(([sub, stats]) => {
+      const total = stats.pass + stats.fail;
+      const passPercent = total > 0 ? ((stats.pass / total) * 100).toFixed(2) : "0";
+      return { subCode: sub, passPercent, pass: stats.pass, fail: stats.fail, ...stats.grades };
+    });
+  };
+
+  const perf = computeDeptPerformance();
+  const subjects = computeDeptSubjectAnalysis();
+
+  return (
+    <div key={deptName} className="mb-5">
+      <h6 className="fw-bold text-primary mb-2">{deptName}</h6>
+
+      {/* Department-wise Report Table */}
+      <div className="table-responsive">
+        <Table striped bordered hover size="sm" className="table-sm small text-center align-middle text-nowrap">
+          <thead className="table-secondary">
+            <tr>
+              <th className="text-start">Register No</th>
+              {subjectCodes.map((code) => (<th key={code}>{code}</th>))}
+              <th>SGPA</th>
+              <th>Arrears</th>
+            </tr>
+          </thead>
+          <tbody>
+            {Object.entries(studentMap).map(([studentId, grades]) => {
+              const arrearCount = Object.values(grades).filter((g) => isArrear(g)).length;
+              return (
+                <tr key={studentId}>
+                  <td className="text-start">{studentId}</td>
+                  {subjectCodes.map((code) => (
+                    <td key={code}>{grades[code] || '-'}</td>
+                  ))}
+                  <td>{studentSgpas[studentId] || '-'}</td>
+                  <td>{arrearCount}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </Table>
+      </div>
+
+      {/* Performance Analysis (Dept-specific) */}
+      <div className="mt-3">
+        <h6 className="fw-bold text-success text-center">Performance Analysis</h6>
+        <Table striped bordered hover size="sm" className="text-center align-middle">
+          <tbody>
+            <tr><td>Pass Percentage</td><td>{perf.passPercentage}%</td></tr>
+            <tr><td>Total Students</td><td>{perf.totalStudents}</td></tr>
+            <tr><td>Total Passed</td><td>{perf.totalPassed}</td></tr>
+            <tr><td>Total Failed</td><td>{perf.totalFailed}</td></tr>
+          </tbody>
+        </Table>
+
+       
+      </div>
+
+      {/* Subject-wise Analysis (Dept-specific) */}
+      <div className="mt-3">
+        <h6 className="fw-bold text-info text-center">Subject-wise Analysis</h6>
+        <Table striped bordered hover size="sm" className="text-center align-middle text-nowrap">
+          <thead className="table-secondary">
+            <tr>
+              <th>SubCode</th><th>Pass %</th><th>Pass</th><th>Fail</th>
+              <th>S</th><th>A+</th><th>A</th><th>B+</th><th>B</th>
+              <th>C+</th><th>C</th><th>D</th><th>P</th><th>F</th><th>FE</th>
+            </tr>
+          </thead>
+          <tbody>
+            {subjects.map((s) => (
+              <tr key={s.subCode}>
+                <td>{s.subCode}</td>
+                <td>{s.passPercent}</td>
+                <td>{s.pass}</td>
+                <td>{s.fail}</td>
+                <td>{s.S}</td>
+                <td>{s["A+"]}</td>
+                <td>{s.A}</td>
+                <td>{s["B+"]}</td>
+                <td>{s.B}</td>
+                <td>{s["C+"]}</td>
+                <td>{s.C}</td>
+                <td>{s.D}</td>
+                <td>{s.P}</td>
+                <td>{s.F}</td>
+                <td>{s.FE}</td>
+              </tr>
+            ))}
+          </tbody>
+        </Table>
+      </div>
+    </div>
+  );
+})}
+
               </div>
+{/* === PERFORMANCE ANALYSIS SECTION === */}
+{(() => {
+  const perf = computePerformanceAnalysis();
+  if (!perf) return null;
+  return (
+    <div className="mt-5">
+      <h5 className="fw-bold text-center text-success">
+        PERFORMANCE ANALYSIS OF REGULAR STUDENTS
+      </h5>
 
-              <div className="alert alert-success mt-3 text-center">
+      {/* Summary Table */}
+      <Table striped bordered hover size="sm" className="text-center align-middle">
+        <tbody>
+          <tr><td>Pass Percentage</td><td>{perf.passPercentage}%</td></tr>
+          <tr><td>Total Students</td><td>{perf.totalStudents}</td></tr>
+          <tr><td>Total Passed</td><td>{perf.totalPassed}</td></tr>
+          <tr><td>Total Failed</td><td>{perf.totalFailed}</td></tr>
+        </tbody>
+      </Table>
+
+      {/* Grade Distribution */}
+      <h6 className="fw-bold mt-3">Grade Distribution</h6>
+      <div className="table-responsive">
+        <Table striped bordered size="sm" className="text-center align-middle text-nowrap">
+          <thead className="table-secondary">
+            <tr>
+              {Object.keys(perf.gradeCount).map((g) => (
+                <th key={g}>{g}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              {Object.values(perf.gradeCount).map((c, i) => (
+                <td key={i}>{c}</td>
+              ))}
+            </tr>
+          </tbody>
+        </Table>
+      </div>
+    </div>
+  );
+})()}
+
+{/* === SUBJECT-WISE ANALYSIS SECTION === */}
+{(() => {
+  const subjects = computeSubjectWiseAnalysis();
+  if (!subjects.length) return null;
+  return (
+    <div className="mt-5">
+      <h5 className="fw-bold text-center text-info">
+        SUBJECT-WISE ANALYSIS - REGULAR STUDENTS
+      </h5>
+      <div className="table-responsive">
+        <Table striped bordered hover size="sm" className="text-center align-middle text-nowrap">
+          <thead className="table-secondary">
+            <tr>
+              <th>SubCode</th>
+              <th>Pass %</th>
+              <th>Pass</th>
+              <th>Fail</th>
+              <th>S</th>
+              <th>A+</th>
+              <th>A</th>
+              <th>B+</th>
+              <th>B</th>
+              <th>C+</th>
+              <th>C</th>
+              <th>D</th>
+              <th>P</th>
+              <th>F</th>
+              <th>FE</th>
+            </tr>
+          </thead>
+          <tbody>
+            {subjects.map((s) => (
+              <tr key={s.subCode}>
+                <td>{s.subCode}</td>
+                <td>{s.passPercent}</td>
+                <td>{s.pass}</td>
+                <td>{s.fail}</td>
+                <td>{s.S}</td>
+                <td>{s["A+"]}</td>
+                <td>{s.A}</td>
+                <td>{s["B+"]}</td>
+                <td>{s.B}</td>
+                <td>{s["C+"]}</td>
+                <td>{s.C}</td>
+                <td>{s.D}</td>
+                <td>{s.P}</td>
+                <td>{s.F}</td>
+                <td>{s.FE}</td>
+              </tr>
+            ))}
+          </tbody>
+        </Table>
+      </div>
+    </div>
+  );
+})()}
+
+              {/* <div className="alert alert-success mt-3 text-center">
                 <h5>Analysis completed successfully!</h5>
                 <p>Total records processed: {data.length}</p>
                 <Button className="mt-3" onClick={exportDepartmentWiseExcel}>
                   <FontAwesomeIcon icon={faFileExcel} /> Download Department-wise Excel Report
                 </Button>
-              </div>
+              </div> */}
             </>
           )}
 
