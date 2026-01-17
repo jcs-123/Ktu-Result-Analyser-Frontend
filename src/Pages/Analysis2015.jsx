@@ -74,28 +74,90 @@ const [examTitle, setExamTitle] = useState("");
   // =====
 
   // Fetch subject meta data including credits & department
-  useEffect(() => {
-    async function fetchSubjects() {
-      try {
-        const response = await fetch('https://ktu-resuly-analyser-backend.onrender.com/depdata');
-        const subjects = await response.json();
+useEffect(() => {
+  async function fetchSubjects() {
+    // Helper: builds lookup map with optional "addShortCodes" control
+    const buildLookupMap = (subjects, addShortCodes = true) => {
+      const map = {};
+      subjects.forEach(({ SUBJECTCODE, SUBJETCODE, DEP, SEM, CREDIT }) => {
+        const code = String(SUBJECTCODE || SUBJETCODE || "").toUpperCase().trim();
+        if (!code) return;
 
-        const lookup = {};
-        subjects.forEach(({ SUBJETCODE, DEP, SEM, CREDIT }) => {
-          const code = String(SUBJETCODE || '').toUpperCase();
-          lookup[code] = {
-            department: DEP || 'Unknown',
-            semester: SEM || '0', // Default to 0 if missing
-            credit: Number(CREDIT) || 0,
-          };
-        });
-        setSubjectCodeToDept(lookup);
-      } catch (error) {
-        console.error('Failed to fetch subjects:', error);
+        const meta = {
+          department: DEP?.toUpperCase() || "UNKNOWN",
+          semester: SEM?.toUpperCase() || "0",
+          credit: Number(CREDIT) || 0,
+        };
+
+        // Always store full code
+        map[code] = meta;
+
+        // Optionally add last-4 version
+        if (addShortCodes) {
+          const shortCode = code.slice(-4);
+          map[shortCode] = meta;
+        }
+      });
+      return map;
+    };
+
+    try {
+      console.log("📡 Fetching main subject metadata (/depdata)...");
+      const resMain = await fetch("https://ktu-resuly-analyser-backend.onrender.com/depdata");
+      if (!resMain.ok) throw new Error(`Main API ${resMain.status}`);
+      const mainData = await resMain.json();
+
+      let finalMap = {};
+      if (Array.isArray(mainData) && mainData.length > 0) {
+        // ✅ Build map from full subject codes only (no short codes here)
+        finalMap = buildLookupMap(mainData, false);
+        console.log(`✅ Loaded ${Object.keys(finalMap).length} subjects from main API`);
       }
+
+      // If main API returned empty data → fallback completely
+      if (Object.keys(finalMap).length === 0) {
+        throw new Error("Main API returned empty or invalid data");
+      }
+
+      // ✅ Now fetch fallback and add short-code mappings only
+      try {
+        console.log("🔁 Fetching fallback subject metadata (/getelsecredict)...");
+        const resElse = await fetch("http://localhost:4000/getelsecredict");
+        if (!resElse.ok) throw new Error(`Fallback API ${resElse.status}`);
+        const elseData = await resElse.json();
+
+        if (Array.isArray(elseData) && elseData.length > 0) {
+          const elseMap = buildLookupMap(elseData, true);
+          let added = 0;
+
+          // Add only short-code entries from fallback if not already in main
+          for (const [code, info] of Object.entries(elseMap)) {
+            // Only process codes that are exactly 4 chars (short)
+            if (code.length === 4 && !finalMap[code]) {
+              finalMap[code] = info;
+              added++;
+            }
+          }
+          console.log(`✅ Added ${added} short-code subjects from fallback`);
+        } else {
+          console.warn("⚠️ Fallback API returned no valid data");
+        }
+      } catch (fallbackErr) {
+        console.warn("⚠️ Fallback fetch skipped:", fallbackErr.message);
+      }
+
+      // ✅ Final subject map ready
+      setSubjectCodeToDept(finalMap);
+      console.log(`📘 Final subject map size: ${Object.keys(finalMap).length}`);
+    } catch (err) {
+      console.error("❌ Failed to fetch subject metadata:", err.message);
     }
-    fetchSubjects();
-  }, []);
+  }
+
+  fetchSubjects();
+}, []);
+
+
 
   // Handle file input change
   const handleFileChange = (e) => {
@@ -353,76 +415,88 @@ const extractExamInfo = (raw) => {
 
   // Calculate SGPA for each student from their grades & credits
   // Return object { studentId: string, sgpa: string }
-  const calculateSGPAs = (students, subjectCodeToDept, semesterCreditMap) => {
-    if (!Array.isArray(students) || !subjectCodeToDept || !semesterCreditMap) {
-      console.error('Missing required data for SGPA calculation');
-      return {};
+const calculateSGPAs = (students, subjectCodeToDept, semesterCreditMap) => {
+  if (!Array.isArray(students) || !subjectCodeToDept || !semesterCreditMap) {
+    console.error("❌ Missing required data for SGPA calculation");
+    return {};
+  }
+
+  const result = {};
+
+  students.forEach((student) => {
+    let department = "";
+    let semester = "";
+    let found = false;
+
+    // 1️⃣ Detect department & semester
+    for (const [code, grade] of Object.entries(student)) {
+      if (code === "studentId") continue;
+      const normCode = String(code).toUpperCase();
+      const info = subjectCodeToDept[normCode] || subjectCodeToDept[normCode.slice(-4)];
+      if (info?.department && info?.semester) {
+        department = info.department.toUpperCase();
+        semester = info.semester.toUpperCase().replace(/^S/, "");
+        found = true;
+        break;
+      }
     }
 
-    const result = {};
+    // 2️⃣ Fallback from register number
+    if (!found) {
+      const parsed = parseRegisterNumber(student.studentId);
+      department = parsed?.dept?.toUpperCase() || "UNKNOWN";
+      semester = "0";
+    }
 
-    students.forEach((student) => {
-      let department = '';
-      let semester = '';
-      let found = false;
+    const semesterKey = `${department}_S${semester}`;
+    const totalSemesterCredits = Number(semesterCreditMap[semesterKey]) || 0;
 
-      // Prefer subject metadata if present
-      for (const [code, grade] of Object.entries(student)) {
-        if (code === 'studentId') continue;
-        const info = subjectCodeToDept[String(code).toUpperCase()];
-        if (info?.department && info?.semester) {
-          department = String(info.department).toUpperCase();
-          semester = String(info.semester).toUpperCase().replace(/^S/, '');
-          found = true;
-          break;
-        }
+    let totalGradePoints = 0;
+    let totalCredits = 0;
+    let hasFail = false; // ✅ Track failures
+
+    // 3️⃣ Calculate (Ci × Gi)
+    for (const [code, grade] of Object.entries(student)) {
+      if (code === "studentId") continue;
+      const normCode = String(code).toUpperCase();
+
+      const info = subjectCodeToDept[normCode] || subjectCodeToDept[normCode.slice(-4)];
+      if (!info) continue;
+
+      const subjectDept = info.department.toUpperCase();
+      const subjectSem = info.semester.toUpperCase().replace(/^S/, "");
+      if (subjectDept !== department || subjectSem !== semester) continue;
+
+      const credit = Number(info.credit) || 0;
+      const gp = gradePointsMap[String(grade || "").toUpperCase()];
+      if (gp === undefined || isNaN(credit) || credit <= 0) continue;
+
+      // ✅ If failed subject found → mark as fail
+      if (gp === 0) {
+        hasFail = true;
       }
 
-      // Fallback: derive department from register number (JEC20CE034 -> CE)
-      if (!found) {
-        const parsed = parseRegisterNumber(student.studentId);
-        department = parsed?.dept || 'UNKNOWN';
-        semester = '0';
-      }
+      totalGradePoints += gp * credit;
+      totalCredits += credit;
+    }
 
-      const semesterKey = `${department}_S${semester}`;
-      const totalSemesterCredits = semesterCreditMap[semesterKey];
+    // 4️⃣ Compute SGPA
+    if (hasFail) {
+      // ❌ Any failed subject = SGPA = 0.00 (KTU rule)
+      result[student.studentId] = "0.00";
+    } else if (totalCredits === 0) {
+      result[student.studentId] = "N/A";
+    } else {
+      const sgpa = totalGradePoints / totalCredits;
+      result[student.studentId] = sgpa.toFixed(2);
+    }
+  });
 
-      if (!totalSemesterCredits || totalSemesterCredits <= 0) {
-        result[student.studentId] = 'N/A';
-        return;
-      }
+  console.log("✅ SGPA calculated for", Object.keys(result).length, "students");
+  return result;
+};
 
-      let totalGradePoints = 0;
-      let creditsAccounted = 0;
 
-      for (const [code, grade] of Object.entries(student)) {
-        if (code === 'studentId') continue;
-
-        const info = subjectCodeToDept[String(code).toUpperCase()];
-        if (!info) continue;
-
-        const isSameSem = String(info.semester || '').toUpperCase().replace(/^S/, '') === semester;
-        if (String(info.department || '').toUpperCase() !== department || !isSameSem) continue;
-
-        const credit = Number(info.credit) || 0;
-        const gp = gradePointsMap[String(grade || '').toUpperCase()];
-        if (gp === undefined) continue;
-
-        totalGradePoints += gp * credit;
-        creditsAccounted += credit;
-      }
-
-      if (creditsAccounted === 0) {
-        result[student.studentId] = 'N/A';
-      } else {
-        const sgpa = totalGradePoints / totalSemesterCredits;
-        result[student.studentId] = sgpa.toFixed(2);
-      }
-    });
-
-    return result;
-  };
 
   // Department-wise flattening
   // NOW groups by department parsed from REGISTER NUMBER (primary), subject metadata is secondary
@@ -639,19 +713,6 @@ const exportDepartmentWiseExcel = async () => {
     });
     row++;
 
-    // === Grade Distribution ===
-    merged("GRADE DISTRIBUTION", styles.sectionHeader);
-    const gKeys = Object.keys(perf.gCount);
-    gKeys.forEach((k, i) => {
-      ws.getCell(row, i + 1).value = k;
-      Object.assign(ws.getCell(row, i + 1), styles.tableHeader);
-    });
-    row++;
-    gKeys.forEach((k, i) => {
-      ws.getCell(row, i + 1).value = perf.gCount[k];
-      Object.assign(ws.getCell(row, i + 1), styles.dataCell);
-    });
-    row += 2;
 
     // === Subject-wise Analysis ===
     merged("SUBJECT-WISE ANALYSIS", styles.sectionHeader);
